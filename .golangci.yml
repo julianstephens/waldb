@@ -1,0 +1,26 @@
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - unused
+    - gosec
+    - revive
+
+linters-settings:
+  revive:
+    severity: warning
+  gosec:
+    excludes:
+      - G404  # Use of weak random number generator - not critical for non-crypto use
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
