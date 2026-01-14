@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/alecthomas/kong"
 	"github.com/julianstephens/waldb/internal/cli"
@@ -38,8 +40,8 @@ func (v VersionFlag) BeforeApply(ctx *kong.Context) error {
 }
 
 func main() {
-	cli := &CLI{}
-	ctx := kong.Parse(cli,
+	cliApp := &CLI{}
+	ctx := kong.Parse(cliApp,
 		kong.Name("waldb"),
 		kong.Description("A Write-Ahead Log database"),
 		kong.UsageOnError(),
@@ -52,5 +54,10 @@ func main() {
 	)
 
 	err := ctx.Run()
-	ctx.FatalIfErrorf(err)
+	if err != nil {
+		if errors.Is(err, cli.ErrNotImplemented) {
+			os.Exit(2)
+		}
+		ctx.FatalIfErrorf(err)
+	}
 }

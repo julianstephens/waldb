@@ -1,11 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
-	"os"
 )
 
-const exitNotImplemented = 2
+// ErrNotImplemented is returned when a command is not yet implemented.
+var ErrNotImplemented = errors.New("not yet implemented")
 
 // InitCmd initializes a new WAL database.
 type InitCmd struct {
@@ -13,9 +14,8 @@ type InitCmd struct {
 }
 
 func (c *InitCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'init' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'init' is not yet implemented")
+	return ErrNotImplemented
 }
 
 // GetCmd retrieves a value by key.
@@ -24,9 +24,8 @@ type GetCmd struct {
 }
 
 func (c *GetCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'get' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'get' is not yet implemented")
+	return ErrNotImplemented
 }
 
 // PutCmd stores a key-value pair.
@@ -36,9 +35,8 @@ type PutCmd struct {
 }
 
 func (c *PutCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'put' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'put' is not yet implemented")
+	return ErrNotImplemented
 }
 
 // DelCmd deletes a key.
@@ -47,9 +45,8 @@ type DelCmd struct {
 }
 
 func (c *DelCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'del' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'del' is not yet implemented")
+	return ErrNotImplemented
 }
 
 // BatchCmd executes multiple operations in a batch.
@@ -58,9 +55,8 @@ type BatchCmd struct {
 }
 
 func (c *BatchCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'batch' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'batch' is not yet implemented")
+	return ErrNotImplemented
 }
 
 // SnapshotCmd creates a database snapshot.
@@ -69,27 +65,24 @@ type SnapshotCmd struct {
 }
 
 func (c *SnapshotCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'snapshot' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'snapshot' is not yet implemented")
+	return ErrNotImplemented
 }
 
 // StatsCmd displays database statistics.
 type StatsCmd struct{}
 
 func (c *StatsCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'stats' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'stats' is not yet implemented")
+	return ErrNotImplemented
 }
 
 // DoctorCmd checks database health and integrity.
 type DoctorCmd struct{}
 
 func (c *DoctorCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'doctor' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'doctor' is not yet implemented")
+	return ErrNotImplemented
 }
 
 // RepairCmd repairs a corrupted database.
@@ -98,7 +91,6 @@ type RepairCmd struct {
 }
 
 func (c *RepairCmd) Run() error {
-	fmt.Fprintf(os.Stderr, "Command 'repair' is not yet implemented\n")
-	os.Exit(exitNotImplemented)
-	return nil
+	fmt.Println("Command 'repair' is not yet implemented")
+	return ErrNotImplemented
 }
