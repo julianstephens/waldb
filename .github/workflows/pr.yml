@@ -19,7 +19,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         go-version: ['1.23']
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -54,9 +54,3 @@ jobs:
       - name: Run tests with coverage
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
-        with:
-          file: ./coverage.out
-          flags: unittests
-        continue-on-error: true
