@@ -10,6 +10,10 @@ A Write-Ahead Log (WAL) based key-value database written in Go.
 - Database snapshots
 - Health checks and repair utilities
 
+## Documentation
+
+- [Design Document](docs/DESIGN.md) - Architecture and design decisions
+
 ## Installation
 
 ### From Source
@@ -50,6 +54,7 @@ waldb repair /path/to/db
 ```
 
 For detailed command help:
+
 ```bash
 waldb --help
 waldb <command> --help
@@ -71,16 +76,19 @@ go build -o waldb ./cmd/waldb
 ### Testing
 
 Run all tests:
+
 ```bash
 go test ./...
 ```
 
 Run tests with race detection:
+
 ```bash
 go test -race ./...
 ```
 
 Run tests with coverage:
+
 ```bash
 go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
@@ -89,16 +97,19 @@ go tool cover -html=coverage.out
 ### Linting
 
 Format code:
+
 ```bash
 gofmt -w .
 ```
 
 Run go vet:
+
 ```bash
 go vet ./...
 ```
 
 Run golangci-lint:
+
 ```bash
 golangci-lint run
 ```
@@ -140,6 +151,7 @@ waldb/
 ### Pull Request Workflow
 
 Every pull request triggers:
+
 - Code formatting checks (`gofmt`)
 - Static analysis (`go vet`, `golangci-lint`)
 - Unit tests with race detection
@@ -152,6 +164,7 @@ See `.github/workflows/pr.yml` for details.
 Releases are automated via Git tags:
 
 1. Create and push a semantic version tag:
+
    ```bash
    git tag -a v0.1.0 -m "Release v0.1.0"
    git push origin v0.1.0
@@ -163,6 +176,7 @@ Releases are automated via Git tags:
    - Upload build artifacts
 
 Supported platforms:
+
 - Linux (amd64, arm64)
 - macOS (amd64, arm64)
 - Windows (amd64)
@@ -172,9 +186,3 @@ See `.github/workflows/release.yml` for details.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Documentation
-
-- [Design Document](docs/design.md) - Architecture and design decisions
-- [Testing Strategy](docs/testing.md) - Testing approach and guidelines
-
