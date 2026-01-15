@@ -169,13 +169,6 @@ Supported platforms:
 
 See `.github/workflows/release.yml` for details.
 
-## Contributing
-
-Contributions are welcome! Please ensure:
-- Code is properly formatted (`gofmt`)
-- All tests pass (`go test ./...`)
-- Linters pass (`golangci-lint run`)
-
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
