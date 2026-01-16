@@ -44,9 +44,7 @@ func (rr *RecordReader) Next() (Record, error) {
 	}
 
 	recordLen := binary.LittleEndian.Uint32(hdr)
-	if err = validateRecordLength(
-		recordLen,
-	); err != nil {
+	if err = validateRecordLength(recordLen); err != nil {
 		if pe, ok := AsParseError(err); ok {
 			pe.Offset = recordStart
 			pe.SafeTruncateOffset = recordStart
