@@ -195,7 +195,7 @@ func Decode(data []byte) (Record, error) {
 
 	rawType := data[RecordHeaderSize]
 	recordType := RecordType(rawType)
-	if recordType == RecordTypeUnknown {
+	if recordType <= RecordTypeUnknown || recordType > RecordTypeDeleteOperation {
 		return Record{}, &ParseError{
 			Kind:               KindInvalidType,
 			Offset:             0,
