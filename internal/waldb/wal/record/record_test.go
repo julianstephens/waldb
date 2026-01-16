@@ -323,20 +323,68 @@ func TestNextMultipleRecords(t *testing.T) {
 }
 
 func TestNextEOF(t *testing.T) {
-	// Test reading from empty stream
+	// Test reading from empty stream should return io.EOF exactly
 	reader := record.NewRecordReader(bytes.NewReader([]byte{}))
 	_, err := reader.Next()
 
-	if err == nil {
-		t.Fatal("expected error for empty stream")
+	if err != io.EOF {
+		t.Fatalf("expected io.EOF for empty stream, got %v", err)
 	}
-	if err != io.EOF && err.Error() != "EOF" {
-		parseErr, ok := err.(*record.ParseError)
-		if !ok {
-			t.Errorf("expected EOF or ParseError, got %T: %v", err, err)
-		} else if parseErr.Kind != record.KindTruncated {
-			t.Errorf("expected KindTruncated for EOF, got %v", parseErr.Kind)
-		}
+}
+
+func TestNextPartialHeaderOneByte(t *testing.T) {
+	// Test reading 1 byte then EOF - should be truncated
+	buf := bytes.NewReader([]byte{0x05})
+	reader := record.NewRecordReader(buf)
+	_, err := reader.Next()
+
+	if err == nil {
+		t.Fatal("expected error for 1-byte truncated header")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindTruncated {
+		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
+	}
+	if parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	}
+	if parseErr.Want != 4 {
+		t.Errorf("expected Want=4, got %d", parseErr.Want)
+	}
+	if parseErr.Have != 1 {
+		t.Errorf("expected Have=1, got %d", parseErr.Have)
+	}
+}
+
+func TestNextPartialHeaderThreeBytes(t *testing.T) {
+	// Test reading 3 bytes then EOF - should be truncated
+	buf := bytes.NewReader([]byte{0x05, 0x00, 0x00})
+	reader := record.NewRecordReader(buf)
+	_, err := reader.Next()
+
+	if err == nil {
+		t.Fatal("expected error for 3-byte truncated header")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindTruncated {
+		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
+	}
+	if parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	}
+	if parseErr.Want != 4 {
+		t.Errorf("expected Want=4, got %d", parseErr.Want)
+	}
+	if parseErr.Have != 3 {
+		t.Errorf("expected Have=3, got %d", parseErr.Have)
 	}
 }
 
