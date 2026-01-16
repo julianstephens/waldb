@@ -529,6 +529,67 @@ func TestEncodeEmptyPayload(t *testing.T) {
 	}
 }
 
+func TestEncodeByteFormat(t *testing.T) {
+	// Test that Encode produces bytes in correct wire format:
+	// [4-byte LE length][1-byte type][N-byte payload][4-byte LE CRC]
+	// where length = 1 + len(payload)
+	payload := []byte("hello")
+	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %v", err)
+	}
+
+	// Expected structure:
+	expectedLen := uint32(1 + len(payload)) //nolint:gosec
+	expectedSize := 4 + expectedLen + 4     // header + (type+payload) + crc
+
+	if len(encoded) != int(expectedSize) {
+		t.Errorf("expected encoded size %d, got %d", expectedSize, len(encoded))
+	}
+
+	// Verify length field (bytes 0-3, little-endian)
+	decodedLen := binary.LittleEndian.Uint32(encoded[0:4])
+	if decodedLen != expectedLen {
+		t.Errorf("expected length field %d, got %d", expectedLen, decodedLen)
+	}
+
+	// Verify type byte (byte 4)
+	if encoded[4] != byte(record.RecordTypePutOperation) {
+		t.Errorf("expected type %d at byte 4, got %d", record.RecordTypePutOperation, encoded[4])
+	}
+
+	// Verify payload (bytes 5 to 5+len(payload))
+	payloadStart := 5
+	payloadEnd := payloadStart + len(payload)
+	if !bytes.Equal(encoded[payloadStart:payloadEnd], payload) {
+		t.Errorf("expected payload %v at bytes [5:%d], got %v", payload, payloadEnd, encoded[payloadStart:payloadEnd])
+	}
+
+	// Verify CRC (last 4 bytes, little-endian)
+	crcStart := int(4 + expectedLen)
+	encodedCRC := binary.LittleEndian.Uint32(encoded[crcStart : crcStart+4])
+	if encodedCRC == 0 {
+		t.Error("expected non-zero CRC")
+	}
+
+	// Verify the CRC is correct by decoding and checking
+	rec, err := record.Decode(encoded)
+	if err != nil {
+		t.Fatalf("unexpected error decoding: %v", err)
+	}
+	if rec.CRC != encodedCRC {
+		t.Errorf("expected CRC %d from decoded record, got %d", encodedCRC, rec.CRC)
+	}
+
+	// Verify it round-trips correctly
+	if rec.Type != record.RecordTypePutOperation {
+		t.Errorf("expected type %v, got %v", record.RecordTypePutOperation, rec.Type)
+	}
+	if !bytes.Equal(rec.Payload, payload) {
+		t.Errorf("expected payload %v, got %v", payload, rec.Payload)
+	}
+}
+
 func TestDecode(t *testing.T) {
 	// Test decoding a record
 	payload := []byte("test-payload")
