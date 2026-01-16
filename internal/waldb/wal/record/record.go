@@ -119,7 +119,7 @@ func (rr *RecordReader) Offset() int64 {
 // Encode encodes a record with the given type and payload.
 // It returns the encoded byte slice or an error.
 func Encode(recordType RecordType, payload []byte) ([]byte, error) {
-	recordLen := uint32(uint32(len(payload)) + 1) //nolint:gosec
+	recordLen := uint32(len(payload)) + 1 //nolint:gosec
 	err := validateRecordLength(recordLen)
 	if err != nil {
 		return nil, err
