@@ -121,9 +121,9 @@ func TestNextTruncatedTailDetection(t *testing.T) {
 	if !ok {
 		t.Errorf("expected ParseError, got %T", err)
 	}
-	// Truncated data affects checksum, so we expect KindChecksumMismatch
-	if parseErr.Kind != record.KindChecksumMismatch {
-		t.Errorf("expected KindChecksumMismatch for truncated record, got %v", parseErr.Kind)
+	// When the tail is truncated during ReadFull, we get a truncation error
+	if parseErr.Kind != record.KindTruncated {
+		t.Errorf("expected KindTruncated for truncated tail, got %v", parseErr.Kind)
 	}
 }
 
@@ -282,5 +282,184 @@ func TestNextEOF(t *testing.T) {
 		} else if parseErr.Kind != record.KindTruncated {
 			t.Errorf("expected KindTruncated for EOF, got %v", parseErr.Kind)
 		}
+	}
+}
+
+func TestOffset(t *testing.T) {
+	// Test that offset is tracked correctly
+	records := []struct {
+		typ     record.RecordType
+		payload []byte
+	}{
+		{record.RecordTypeBeginTransaction, []byte("txn-1")},
+		{record.RecordTypePutOperation, []byte("key1=value1")},
+		{record.RecordTypeDeleteOperation, []byte("key2")},
+	}
+
+	buf := new(bytes.Buffer)
+	offsets := []int64{}
+	for _, rec := range records {
+		offsets = append(offsets, int64(buf.Len()))
+		buf.Write(encodeRecord(rec.typ, rec.payload))
+	}
+
+	reader := record.NewRecordReader(buf)
+
+	// Initial offset should be 0
+	if reader.Offset() != 0 {
+		t.Errorf("expected initial offset 0, got %d", reader.Offset())
+	}
+
+	for i := range records {
+		rec, err := reader.Next()
+		if err != nil {
+			t.Fatalf("record %d: unexpected error: %v", i, err)
+		}
+
+		// After reading a record, offset should point to the next record position
+		expectedOffset := offsets[i] + int64(4+len(rec.Payload)+1+4) // len header + payload + type + crc
+		if reader.Offset() != expectedOffset {
+			t.Errorf("record %d: expected offset %d, got %d", i, expectedOffset, reader.Offset())
+		}
+	}
+}
+
+func TestEncode(t *testing.T) {
+	// Test encoding a record
+	payload := []byte("test-payload")
+	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	if err != nil {
+		t.Fatalf("unexpected error encoding record: %v", err)
+	}
+
+	// Verify it can be decoded
+	rec, err := record.Decode(encoded)
+	if err != nil {
+		t.Fatalf("unexpected error decoding record: %v", err)
+	}
+
+	if rec.Type != record.RecordTypePutOperation {
+		t.Errorf("expected type %v, got %v", record.RecordTypePutOperation, rec.Type)
+	}
+	if !bytes.Equal(rec.Payload, payload) {
+		t.Errorf("expected payload %v, got %v", payload, rec.Payload)
+	}
+}
+
+func TestEncodeMultiple(t *testing.T) {
+	// Test encoding multiple records
+	records := []struct {
+		typ     record.RecordType
+		payload []byte
+	}{
+		{record.RecordTypeBeginTransaction, []byte("txn-start")},
+		{record.RecordTypePutOperation, []byte("key=value")},
+		{record.RecordTypeDeleteOperation, []byte("old-key")},
+		{record.RecordTypeCommitTransaction, []byte("txn-end")},
+	}
+
+	buf := new(bytes.Buffer)
+
+	// Encode all records
+	for i, rec := range records {
+		encoded, err := record.Encode(rec.typ, rec.payload)
+		if err != nil {
+			t.Fatalf("record %d: unexpected error encoding: %v", i, err)
+		}
+		buf.Write(encoded)
+	}
+
+	// Read them all back
+	reader := record.NewRecordReader(bytes.NewReader(buf.Bytes()))
+	for i, expected := range records {
+		rec, err := reader.Next()
+		if err != nil {
+			t.Fatalf("record %d: unexpected error reading: %v", i, err)
+		}
+
+		if rec.Type != expected.typ {
+			t.Errorf("record %d: expected type %v, got %v", i, expected.typ, rec.Type)
+		}
+		if !bytes.Equal(rec.Payload, expected.payload) {
+			t.Errorf("record %d: expected payload %v, got %v", i, expected.payload, rec.Payload)
+		}
+	}
+}
+
+func TestEncodeInvalidLength(t *testing.T) {
+	// Test that Encode rejects payloads larger than MaxRecordSize
+	// Create a payload larger than MaxRecordSize
+	largePayload := make([]byte, record.MaxRecordSize+1)
+
+	_, err := record.Encode(record.RecordTypePutOperation, largePayload)
+	if err == nil {
+		t.Fatal("expected error for oversized payload")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindTooLarge {
+		t.Errorf("expected KindTooLarge, got %v", parseErr.Kind)
+	}
+}
+
+func TestEncodeEmptyPayload(t *testing.T) {
+	// Test encoding with empty payload
+	encoded, err := record.Encode(record.RecordTypeBeginTransaction, []byte{})
+	if err != nil {
+		t.Fatalf("unexpected error encoding empty payload: %v", err)
+	}
+
+	// Decode it back
+	rec, err := record.Decode(encoded)
+	if err != nil {
+		t.Fatalf("unexpected error decoding record: %v", err)
+	}
+
+	if rec.Type != record.RecordTypeBeginTransaction {
+		t.Errorf("expected type %v, got %v", record.RecordTypeBeginTransaction, rec.Type)
+	}
+	if len(rec.Payload) != 0 {
+		t.Errorf("expected empty payload, got %v", rec.Payload)
+	}
+}
+
+func TestDecode(t *testing.T) {
+	// Test decoding a record
+	payload := []byte("test-payload")
+	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	if err != nil {
+		t.Fatalf("unexpected error encoding record: %v", err)
+	}
+
+	// Decode it
+	rec, err := record.Decode(encoded)
+	if err != nil {
+		t.Fatalf("unexpected error decoding record: %v", err)
+	}
+
+	if rec.Type != record.RecordTypePutOperation {
+		t.Errorf("expected type %v, got %v", record.RecordTypePutOperation, rec.Type)
+	}
+	if !bytes.Equal(rec.Payload, payload) {
+		t.Errorf("expected payload %v, got %v", payload, rec.Payload)
+	}
+}
+
+func TestDecodeInvalidData(t *testing.T) {
+	// Test decoding truncated data
+	_, err := record.Decode([]byte{0x05, 0x00})
+	if err == nil {
+		t.Fatal("expected error for truncated data")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindTruncated {
+		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
 	}
 }

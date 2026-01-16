@@ -22,6 +22,7 @@ const (
 	KindTooLarge
 	KindChecksumMismatch
 	KindInvalidType
+	KindCorrupt
 	KindIO
 )
 
@@ -37,6 +38,8 @@ func (k ParseErrorKind) String() string {
 		return "invalid_type"
 	case KindChecksumMismatch:
 		return "checksum_mismatch"
+	case KindCorrupt:
+		return "corrupt"
 	case KindIO:
 		return "io_error"
 	default:
@@ -86,9 +89,8 @@ func (e *ParseError) Is(target error) bool {
 	case ErrInvalidType:
 		return e.Kind == KindInvalidType
 	case ErrCorrupt:
-		return e.Kind == KindChecksumMismatch
+		return e.Kind == KindCorrupt
 	}
-	_ = io.EOF
 	return false
 }
 
