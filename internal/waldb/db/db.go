@@ -1,4 +1,4 @@
-package waldb
+package db
 
 import "errors"
 

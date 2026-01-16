@@ -1,9 +1,13 @@
-package waldb
+package db_test
 
-import "testing"
+import (
+	"testing"
+
+	waldb "github.com/julianstephens/waldb/internal/waldb/db"
+)
 
 func TestOpenClose(t *testing.T) {
-	db, err := Open("/tmp/test.db")
+	db, err := waldb.Open("/tmp/test.db")
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
@@ -33,7 +37,7 @@ func TestOpenClose(t *testing.T) {
 }
 
 func TestOpenEmptyPath(t *testing.T) {
-	_, err := Open("")
+	_, err := waldb.Open("")
 	if err == nil {
 		t.Error("expected error for empty path")
 	}
