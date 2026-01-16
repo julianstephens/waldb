@@ -2,9 +2,11 @@ package record
 
 import "hash/crc32"
 
-// ComputeChecksum computes the CRC32 checksum for the given data.
+var castagnoliTable = crc32.MakeTable(crc32.Castagnoli)
+
+// ComputeChecksum computes the CRC32 checksum with the Castagnoli polynomial for the given data.
 func ComputeChecksum(data []byte) uint32 {
-	return crc32.ChecksumIEEE(data)
+	return crc32.Checksum(data, castagnoliTable)
 }
 
 // VerifyChecksum verifies the checksum of the given record.

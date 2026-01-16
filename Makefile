@@ -1,4 +1,4 @@
-.PHONY: build test lint fmt clean help install
+.PHONY: build test lint fmt clean help install check
 
 # Variables
 BINARY_NAME=waldb
@@ -61,6 +61,8 @@ lint:
 		exit 1; \
 	fi
 	@echo "Linting complete"
+
+check: fmt lint test
 
 ## clean: Clean build artifacts
 clean:

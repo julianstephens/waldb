@@ -17,7 +17,8 @@ func encodeRecord(recordType record.RecordType, payload []byte) []byte {
 	data := make([]byte, recordLen)
 	data[0] = byte(recordType)
 	copy(data[1:], payload)
-	crc := crc32.ChecksumIEEE(data)
+	table := crc32.MakeTable(crc32.Castagnoli)
+	crc := crc32.Checksum(data, table)
 
 	buf := new(bytes.Buffer)
 	_ = binary.Write(buf, binary.LittleEndian, recordLen)

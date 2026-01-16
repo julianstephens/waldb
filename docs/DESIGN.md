@@ -229,7 +229,7 @@ Each record is encoded as:
 
 **Checksum:**
 
-- Algorithm: CRC32-C (Castagnoli) OR CRC32 IEEE (pick one and keep stable once chosen)
+- Algorithm: CRC32-C (Castagnoli)
 - Computed over `[type + payload]` only (does not include `len` or `crc` field)
 
 **Constraints:**
