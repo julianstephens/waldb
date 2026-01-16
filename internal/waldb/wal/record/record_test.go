@@ -463,3 +463,218 @@ func TestDecodeInvalidData(t *testing.T) {
 		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
 	}
 }
+
+func TestDecodeTooShort(t *testing.T) {
+	// Test decoding data shorter than minimum header + crc
+	_, err := record.Decode([]byte{0x01})
+	if err == nil {
+		t.Fatal("expected error for data too short")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindTruncated {
+		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
+	}
+}
+
+func TestDecodeZeroLength(t *testing.T) {
+	// Test decoding with zero record length
+	data := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	_, err := record.Decode(data)
+	if err == nil {
+		t.Fatal("expected error for zero record length")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindInvalidLength {
+		t.Errorf("expected KindInvalidLength, got %v", parseErr.Kind)
+	}
+}
+
+func TestDecodeTooLarge(t *testing.T) {
+	// Test decoding with record length > MaxRecordSize
+	// Encode length as 17MB (16MB + 1)
+	largeLen := uint32(record.MaxRecordSize + 1)
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint32(data[:4], largeLen)
+
+	_, err := record.Decode(data)
+	if err == nil {
+		t.Fatal("expected error for oversized record length")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindTooLarge {
+		t.Errorf("expected KindTooLarge, got %v", parseErr.Kind)
+	}
+}
+
+func TestDecodeUnknownType(t *testing.T) {
+	// Test decoding with RecordTypeUnknown
+	// Create a record with type 0 (Unknown)
+	data := []byte{
+		0x02, 0x00, 0x00, 0x00, // length = 2
+		0x00,                   // type = 0 (Unknown)
+		0xFF,                   // payload
+		0x00, 0x00, 0x00, 0x00, // crc
+	}
+
+	_, err := record.Decode(data)
+	if err == nil {
+		t.Fatal("expected error for unknown record type")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindInvalidType {
+		t.Errorf("expected KindInvalidType, got %v", parseErr.Kind)
+	}
+}
+
+func TestDecodeInvalidType(t *testing.T) {
+	// Test decoding with invalid record type (beyond DeleteOperation)
+	// RecordTypeDeleteOperation = 4, so 5 is invalid
+	data := []byte{
+		0x02, 0x00, 0x00, 0x00, // length = 2
+		0x05,                   // type = 5 (invalid)
+		0xFF,                   // payload
+		0x00, 0x00, 0x00, 0x00, // crc
+	}
+
+	_, err := record.Decode(data)
+	if err == nil {
+		t.Fatal("expected error for invalid record type")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindInvalidType {
+		t.Errorf("expected KindInvalidType, got %v", parseErr.Kind)
+	}
+}
+
+func TestDecodeChecksumMismatch(t *testing.T) {
+	// Test decoding with mismatched checksum
+	payload := []byte("test")
+	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %v", err)
+	}
+
+	// Corrupt the CRC bytes (last 4 bytes)
+	encoded[len(encoded)-1] ^= 0xFF
+
+	_, err = record.Decode(encoded)
+	if err == nil {
+		t.Fatal("expected error for checksum mismatch")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindChecksumMismatch {
+		t.Errorf("expected KindChecksumMismatch, got %v", parseErr.Kind)
+	}
+}
+
+func TestDecodeExtraData(t *testing.T) {
+	// Test decoding with extra data beyond expected record length
+	payload := []byte("test")
+	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	if err != nil {
+		t.Fatalf("unexpected error encoding: %v", err)
+	}
+
+	// Append extra bytes
+	encoded = append(encoded, 0xFF, 0xFF)
+
+	_, err = record.Decode(encoded)
+	if err == nil {
+		t.Fatal("expected error for extra data")
+	}
+
+	parseErr, ok := err.(*record.ParseError)
+	if !ok {
+		t.Errorf("expected ParseError, got %T", err)
+	}
+	if parseErr.Kind != record.KindCorrupt {
+		t.Errorf("expected KindCorrupt, got %v", parseErr.Kind)
+	}
+}
+
+func TestDecodeValidAllTypes(t *testing.T) {
+	// Test decoding valid records for all valid types
+	types := []record.RecordType{
+		record.RecordTypeBeginTransaction,
+		record.RecordTypeCommitTransaction,
+		record.RecordTypePutOperation,
+		record.RecordTypeDeleteOperation,
+	}
+	payload := []byte("test-payload")
+
+	for _, recordType := range types {
+		encoded, err := record.Encode(recordType, payload)
+		if err != nil {
+			t.Fatalf("unexpected error encoding type %v: %v", recordType, err)
+		}
+
+		rec, err := record.Decode(encoded)
+		if err != nil {
+			t.Fatalf("unexpected error decoding type %v: %v", recordType, err)
+		}
+
+		if rec.Type != recordType {
+			t.Errorf("type %v: expected type %v, got %v", recordType, recordType, rec.Type)
+		}
+		if !bytes.Equal(rec.Payload, payload) {
+			t.Errorf("type %v: expected payload %v, got %v", recordType, payload, rec.Payload)
+		}
+	}
+}
+
+func TestDecodeRoundtrip(t *testing.T) {
+	// Test encode/decode roundtrip for various payloads
+	testCases := []struct {
+		name    string
+		typ     record.RecordType
+		payload []byte
+	}{
+		{"empty payload", record.RecordTypeBeginTransaction, []byte{}},
+		{"small payload", record.RecordTypePutOperation, []byte("key=value")},
+		{"binary payload", record.RecordTypeDeleteOperation, []byte{0x00, 0x01, 0x02, 0xFF}},
+		{"large payload", record.RecordTypeCommitTransaction, make([]byte, 10000)},
+	}
+
+	for _, tc := range testCases {
+		encoded, err := record.Encode(tc.typ, tc.payload)
+		if err != nil {
+			t.Fatalf("%s: unexpected error encoding: %v", tc.name, err)
+		}
+
+		rec, err := record.Decode(encoded)
+		if err != nil {
+			t.Fatalf("%s: unexpected error decoding: %v", tc.name, err)
+		}
+
+		if rec.Type != tc.typ {
+			t.Errorf("%s: expected type %v, got %v", tc.name, tc.typ, rec.Type)
+		}
+		if !bytes.Equal(rec.Payload, tc.payload) {
+			t.Errorf("%s: payload mismatch", tc.name)
+		}
+	}
+}
