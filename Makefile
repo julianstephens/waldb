@@ -45,13 +45,11 @@ test-coverage:
 ## fmt: Format code
 fmt:
 	@echo "Formatting code..."
-	@gofmt -w .
+	@golangci-lint fmt
 	@echo "Code formatted"
 
 ## lint: Run linters
 lint:
-	@echo "Running go vet..."
-	@go vet ./...
 	@echo "Running golangci-lint..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run --timeout=5m; \

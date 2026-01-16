@@ -35,7 +35,7 @@ type VersionFlag bool
 
 func (v VersionFlag) BeforeApply(ctx *kong.Context) error {
 	fmt.Printf("waldb %s (commit: %s, built: %s)\n", version, commit, date)
-	ctx.Kong.Exit(0)
+	ctx.Exit(0)
 	return nil
 }
 
