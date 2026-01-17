@@ -112,6 +112,37 @@ func (rr *RecordReader) Next() (record.FramedRecord, error) {
 	return rec, nil
 }
 
+func (rr *RecordReader) SkipTo(offset int64) error {
+	if offset < rr.offset {
+		return &record.ReaderError{
+			Kind:    record.ReaderInvalidSeek,
+			Current: rr.offset,
+			Want:    offset,
+			Err:     record.ErrReaderInvalidSeek,
+		}
+	}
+
+	skipBytes := offset - rr.offset
+	buf := make([]byte, 4096)
+	for skipBytes > 0 {
+		toRead := int64(len(buf))
+		if skipBytes < toRead {
+			toRead = skipBytes
+		}
+		n, err := rr.r.Read(buf[:toRead])
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.EOF
+		}
+		skipBytes -= int64(n)
+		rr.offset += int64(n)
+	}
+
+	return nil
+}
+
 // Offset returns the current offset in the underlying reader.
 func (rr *RecordReader) Offset() int64 {
 	return rr.offset

@@ -171,3 +171,45 @@ func (e *CodecError) Is(target error) bool {
 		return false
 	}
 }
+
+type ReaderErrorKind uint8
+
+const (
+	ReaderErrorUnexpectedEOF ReaderErrorKind = iota
+	ReaderErrorClosed
+	ReaderInvalidSeek
+)
+
+type ReaderError struct {
+	Kind    ReaderErrorKind
+	Current int64
+	Want    int64
+	Err     error
+}
+
+func (e *ReaderError) Error() string {
+	return fmt.Sprintf("record reader error kind=%d current=%d want=%d: %v",
+		e.Kind, e.Current, e.Want, e.Err,
+	)
+}
+
+func (e *ReaderError) Unwrap() error { return e.Err }
+
+var (
+	ErrReaderUnexpectedEOF = errors.New("record reader: unexpected eof")
+	ErrReaderClosed        = errors.New("record reader: closed")
+	ErrReaderInvalidSeek   = errors.New("record reader: invalid seek")
+)
+
+func (e *ReaderError) Is(target error) bool {
+	switch target {
+	case ErrReaderUnexpectedEOF:
+		return e.Kind == ReaderErrorUnexpectedEOF
+	case ErrReaderClosed:
+		return e.Kind == ReaderErrorClosed
+	case ErrReaderInvalidSeek:
+		return e.Kind == ReaderInvalidSeek
+	default:
+		return false
+	}
+}

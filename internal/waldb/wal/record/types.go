@@ -25,16 +25,16 @@ type FramedRecord struct {
 }
 
 type BeginCommitTransactionPayload struct {
-	TransactionID uint64 `json:"transaction_id"`
+	TxnID uint64 `json:"txn_id"`
 }
 
 type PutOpPayload struct {
-	TransactionID uint64 `json:"transaction_id"`
-	Key           []byte `json:"key"`
-	Value         []byte `json:"value"`
+	TxnID uint64 `json:"txn_id"`
+	Key   []byte `json:"key"`
+	Value []byte `json:"value"`
 }
 
 type DeleteOpPayload struct {
-	TransactionID uint64 `json:"transaction_id"`
-	Key           []byte `json:"key"`
+	TxnID uint64 `json:"txn_id"`
+	Key   []byte `json:"key"`
 }

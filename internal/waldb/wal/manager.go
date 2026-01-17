@@ -70,7 +70,7 @@ func listSegments(dir string) ([]uint64, error) {
 
 // OpenManager opens or creates the WAL directory, discovers existing segments,
 // selects the active segment, and prepares it for append.
-func OpenManager(dir string, opts ManagerOpts) (*Manager, error) {
+func OpenManager(dir string, opts ManagerOpts) (SegmentProvider, error) {
 	mgr := &Manager{
 		mu:     sync.Mutex{},
 		dir:    dir,
@@ -128,7 +128,7 @@ func OpenManager(dir string, opts ManagerOpts) (*Manager, error) {
 	return mgr, nil
 }
 
-func (m *Manager) SegmentIds() []uint64 {
+func (m *Manager) SegmentIDs() []uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return slices.Clone(m.segments)
@@ -138,6 +138,23 @@ func (m *Manager) SegmentPath(segId uint64) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.segmentPath(m.dir, segId, true)
+}
+
+func (m *Manager) OpenSegment(segId uint64) (SegmentReader, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	segPath := m.segmentPath(m.dir, segId, true)
+	if segPath == "" {
+		return nil, wrapManagerErr("get_segment_path", ErrSegmentNotFound, m.dir, segId, nil)
+	}
+
+	file, err := os.Open(segPath) //nolint:gosec
+	if err != nil {
+		return nil, wrapManagerErr("open_segment", ErrSegmentOpen, m.dir, segId, err)
+	}
+
+	return NewFileSegmentReader(segId, file), nil
 }
 
 // Append appends a single framed WAL record to the active segment,

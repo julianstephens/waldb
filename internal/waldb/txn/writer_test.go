@@ -155,8 +155,8 @@ func TestWriterOrderingBeginOpsCommit(t *testing.T) {
 			if err != nil {
 				t.Fatalf("record %d: failed to decode BEGIN: %v", i, err)
 			}
-			if decodedBegin.TransactionID != 100 {
-				t.Errorf("record %d (BEGIN): expected txnID 100, got %d", i, decodedBegin.TransactionID)
+			if decodedBegin.TxnID != 100 {
+				t.Errorf("record %d (BEGIN): expected txnID 100, got %d", i, decodedBegin.TxnID)
 			}
 		} else if i == len(logWriter.appends)-1 {
 			// COMMIT record
@@ -164,8 +164,8 @@ func TestWriterOrderingBeginOpsCommit(t *testing.T) {
 			if err != nil {
 				t.Fatalf("record %d: failed to decode COMMIT: %v", i, err)
 			}
-			if decodedCommit.TransactionID != 100 {
-				t.Errorf("record %d (COMMIT): expected txnID 100, got %d", i, decodedCommit.TransactionID)
+			if decodedCommit.TxnID != 100 {
+				t.Errorf("record %d (COMMIT): expected txnID 100, got %d", i, decodedCommit.TxnID)
 			}
 		} else {
 			// Operation records (PUT or DELETE)
@@ -175,16 +175,16 @@ func TestWriterOrderingBeginOpsCommit(t *testing.T) {
 				if err != nil {
 					t.Fatalf("record %d: failed to decode PUT: %v", i, err)
 				}
-				if decodedPut.TransactionID != 100 {
-					t.Errorf("record %d (PUT): expected txnID 100, got %d", i, decodedPut.TransactionID)
+				if decodedPut.TxnID != 100 {
+					t.Errorf("record %d (PUT): expected txnID 100, got %d", i, decodedPut.TxnID)
 				}
 			case record.RecordTypeDeleteOperation:
 				decodedDelete, err := record.DecodeDeleteOpPayload(append.Payload)
 				if err != nil {
 					t.Fatalf("record %d: failed to decode DELETE: %v", i, err)
 				}
-				if decodedDelete.TransactionID != 100 {
-					t.Errorf("record %d (DELETE): expected txnID 100, got %d", i, decodedDelete.TransactionID)
+				if decodedDelete.TxnID != 100 {
+					t.Errorf("record %d (DELETE): expected txnID 100, got %d", i, decodedDelete.TxnID)
 				}
 			}
 		}
@@ -439,7 +439,7 @@ func TestWriterMultipleBatches(t *testing.T) {
 	decodedBegin1, _ := record.DecodeBeginTxnPayload(logWriter.appends[0].Payload)
 	decodedBegin2, _ := record.DecodeBeginTxnPayload(logWriter.appends[3].Payload)
 
-	if decodedBegin1.TransactionID == decodedBegin2.TransactionID {
+	if decodedBegin1.TxnID == decodedBegin2.TxnID {
 		t.Error("different transactions should have different txnIDs")
 	}
 }
@@ -466,8 +466,8 @@ func TestWriterPayloadsAreCorrect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to decode PUT: %v", err)
 	}
-	if decodedPut.TransactionID != txnID {
-		t.Errorf("PUT txnID mismatch: expected %d, got %d", txnID, decodedPut.TransactionID)
+	if decodedPut.TxnID != txnID {
+		t.Errorf("PUT txnID mismatch: expected %d, got %d", txnID, decodedPut.TxnID)
 	}
 	if string(decodedPut.Key) != "mykey" {
 		t.Errorf("PUT key mismatch: expected 'mykey', got '%s'", decodedPut.Key)
@@ -481,8 +481,8 @@ func TestWriterPayloadsAreCorrect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to decode DELETE: %v", err)
 	}
-	if decodedDelete.TransactionID != txnID {
-		t.Errorf("DELETE txnID mismatch: expected %d, got %d", txnID, decodedDelete.TransactionID)
+	if decodedDelete.TxnID != txnID {
+		t.Errorf("DELETE txnID mismatch: expected %d, got %d", txnID, decodedDelete.TxnID)
 	}
 	if string(decodedDelete.Key) != "delkey" {
 		t.Errorf("DELETE key mismatch: expected 'delkey', got '%s'", decodedDelete.Key)

@@ -73,7 +73,7 @@ func DecodeBeginTxnPayload(data []byte) (*BeginCommitTransactionPayload, error) 
 	if err := rejectTrailing(data, TxnIdSize, "payload_length"); err != nil {
 		return nil, err
 	}
-	return &BeginCommitTransactionPayload{TransactionID: txnID}, nil
+	return &BeginCommitTransactionPayload{TxnID: txnID}, nil
 }
 
 // EncodeCommitTxnPayload encodes the payload for a CommitTransaction record.
@@ -94,7 +94,7 @@ func DecodeCommitTxnPayload(data []byte) (*BeginCommitTransactionPayload, error)
 	if err := rejectTrailing(data, TxnIdSize, "payload_length"); err != nil {
 		return nil, err
 	}
-	return &BeginCommitTransactionPayload{TransactionID: txnID}, nil
+	return &BeginCommitTransactionPayload{TxnID: txnID}, nil
 }
 
 // PUT payloads
@@ -205,9 +205,9 @@ func DecodePutOpPayload(data []byte) (*PutOpPayload, error) {
 	}
 
 	return &PutOpPayload{
-		TransactionID: txnID,
-		Key:           data[keyStart:keyEnd],
-		Value:         data[valueStart:valueEnd],
+		TxnID: txnID,
+		Key:   data[keyStart:keyEnd],
+		Value: data[valueStart:valueEnd],
 	}, nil
 }
 
@@ -280,7 +280,7 @@ func DecodeDeleteOpPayload(data []byte) (*DeleteOpPayload, error) {
 	}
 
 	return &DeleteOpPayload{
-		TransactionID: txnID,
-		Key:           data[keyStart:keyEnd],
+		TxnID: txnID,
+		Key:   data[keyStart:keyEnd],
 	}, nil
 }

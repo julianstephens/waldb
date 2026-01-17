@@ -60,8 +60,8 @@ func TestDecodeBeginTxnPayload(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if decoded.TransactionID != txnId {
-		t.Errorf("expected txn_id %d, got %d", txnId, decoded.TransactionID)
+	if decoded.TxnID != txnId {
+		t.Errorf("expected txn_id %d, got %d", txnId, decoded.TxnID)
 	}
 }
 
@@ -127,8 +127,8 @@ func TestEncodePutOpPayload(t *testing.T) {
 		t.Fatalf("unexpected error decoding: %v", err)
 	}
 
-	if decoded.TransactionID != txnId {
-		t.Errorf("expected txn_id %d, got %d", txnId, decoded.TransactionID)
+	if decoded.TxnID != txnId {
+		t.Errorf("expected txn_id %d, got %d", txnId, decoded.TxnID)
 	}
 	if !bytes.Equal(decoded.Key, key) {
 		t.Errorf("expected key %v, got %v", key, decoded.Key)
@@ -393,8 +393,8 @@ func TestEncodeDeleteOpPayload(t *testing.T) {
 		t.Fatalf("unexpected error decoding: %v", err)
 	}
 
-	if decoded.TransactionID != txnId {
-		t.Errorf("expected txn_id %d, got %d", txnId, decoded.TransactionID)
+	if decoded.TxnID != txnId {
+		t.Errorf("expected txn_id %d, got %d", txnId, decoded.TxnID)
 	}
 	if !bytes.Equal(decoded.Key, key) {
 		t.Errorf("expected key %v, got %v", key, decoded.Key)
@@ -567,8 +567,8 @@ func TestEncodePutOpPayloadRoundtrip(t *testing.T) {
 			t.Fatalf("%s: unexpected error decoding: %v", tc.name, err)
 		}
 
-		if decoded.TransactionID != tc.txnId {
-			t.Errorf("%s: expected txn_id %d, got %d", tc.name, tc.txnId, decoded.TransactionID)
+		if decoded.TxnID != tc.txnId {
+			t.Errorf("%s: expected txn_id %d, got %d", tc.name, tc.txnId, decoded.TxnID)
 		}
 		if !bytes.Equal(decoded.Key, tc.key) {
 			t.Errorf("%s: key mismatch", tc.name)
@@ -603,8 +603,8 @@ func TestEncodeDeleteOpPayloadRoundtrip(t *testing.T) {
 			t.Fatalf("%s: unexpected error decoding: %v", tc.name, err)
 		}
 
-		if decoded.TransactionID != tc.txnId {
-			t.Errorf("%s: expected txn_id %d, got %d", tc.name, tc.txnId, decoded.TransactionID)
+		if decoded.TxnID != tc.txnId {
+			t.Errorf("%s: expected txn_id %d, got %d", tc.name, tc.txnId, decoded.TxnID)
 		}
 		if !bytes.Equal(decoded.Key, tc.key) {
 			t.Errorf("%s: key mismatch", tc.name)
@@ -634,8 +634,8 @@ func TestEncodeBeginTxnPayloadRoundtrip(t *testing.T) {
 			t.Fatalf("%s: unexpected error decoding: %v", tc.name, err)
 		}
 
-		if decoded.TransactionID != tc.txnId {
-			t.Errorf("%s: expected txn_id %d, got %d", tc.name, tc.txnId, decoded.TransactionID)
+		if decoded.TxnID != tc.txnId {
+			t.Errorf("%s: expected txn_id %d, got %d", tc.name, tc.txnId, decoded.TxnID)
 		}
 	}
 }
