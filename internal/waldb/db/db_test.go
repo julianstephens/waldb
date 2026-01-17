@@ -3,42 +3,29 @@ package db_test
 import (
 	"testing"
 
+	tst "github.com/julianstephens/go-utils/tests"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
 )
 
 func TestOpenClose(t *testing.T) {
 	db, err := waldb.Open("/tmp/test.db")
-	if err != nil {
-		t.Fatalf("Open failed: %v", err)
-	}
+	tst.RequireNoError(t, err)
 
-	if db.Path() != "/tmp/test.db" {
-		t.Errorf("expected path /tmp/test.db, got %s", db.Path())
-	}
+	tst.RequireDeepEqual(t, db.Path(), "/tmp/test.db")
 
-	if db.IsClosed() {
-		t.Error("expected database to be open")
-	}
+	tst.AssertFalse(t, db.IsClosed(), "expected database to be open")
 
 	err = db.Close()
-	if err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	tst.RequireNoError(t, err)
 
-	if !db.IsClosed() {
-		t.Error("expected database to be closed")
-	}
+	tst.AssertTrue(t, db.IsClosed(), "expected database to be closed")
 
 	// Test double close
 	err = db.Close()
-	if err == nil {
-		t.Error("expected error on double close")
-	}
+	tst.AssertNotNil(t, err, "expected error on double close")
 }
 
 func TestOpenEmptyPath(t *testing.T) {
 	_, err := waldb.Open("")
-	if err == nil {
-		t.Error("expected error for empty path")
-	}
+	tst.AssertNotNil(t, err, "expected error for empty path")
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	tst "github.com/julianstephens/go-utils/tests"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
@@ -12,19 +13,13 @@ import (
 func TestEncodeBeginTxnPayload(t *testing.T) {
 	txnId := uint64(12345)
 	encoded, err := record.EncodeBeginTxnPayload(txnId)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	tst.RequireNoError(t, err)
 
-	if len(encoded) != record.TxnIdSize {
-		t.Errorf("expected length %d, got %d", record.TxnIdSize, len(encoded))
-	}
+	tst.RequireDeepEqual(t, len(encoded), record.TxnIdSize)
 
 	// Verify txn_id
 	decodedTxnId := binary.LittleEndian.Uint64(encoded[0:])
-	if decodedTxnId != txnId {
-		t.Errorf("expected txn_id %d, got %d", txnId, decodedTxnId)
-	}
+	tst.RequireDeepEqual(t, decodedTxnId, txnId)
 }
 
 // TestEncodeBeginTxnPayloadZero tests with txn_id 0

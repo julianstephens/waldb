@@ -11,11 +11,11 @@ var (
 	ErrInvalidRecord = errors.New("wal: invalid record")
 
 	// I/O layer failures
-	ErrAppendFailed  = errors.New("wal: append failed")
-	ErrShortWrite    = errors.New("wal: short write")
-	ErrFlushFailed   = errors.New("wal: flush failed")
-	ErrSyncFailed    = errors.New("wal: fsync failed")
-	ErrCloseFailed   = errors.New("wal: close failed")
+	ErrAppendFailed = errors.New("wal: append failed")
+	ErrShortWrite   = errors.New("wal: short write")
+	ErrFlushFailed  = errors.New("wal: flush failed")
+	ErrSyncFailed   = errors.New("wal: fsync failed")
+	ErrCloseFailed  = errors.New("wal: close failed")
 
 	// Construction / lifecycle errors
 	ErrNilSegmentFile = errors.New("wal: nil segment file")
@@ -23,11 +23,12 @@ var (
 )
 
 type SegmentWriteError struct {
-	Err        error         
-	Offset     int64         // offset where write was attempted
+	Err        error
+	Cause      error // underlying error, if any
+	Offset     int64 // offset where write was attempted
 	RecordType record.RecordType
-	Have       int           // bytes written (if short write)
-	Want       int           // bytes expected
+	Have       int // bytes written (if short write)
+	Want       int // bytes expected
 }
 
 func (e *SegmentWriteError) Error() string { return e.Err.Error() }

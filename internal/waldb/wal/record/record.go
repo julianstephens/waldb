@@ -83,7 +83,7 @@ func Decode(data []byte) (FramedRecord, error) {
 			DeclaredLen:        recordLen,
 			Want:               wantTotal,
 			Have:               len(data),
-			Err:                ErrTooLarge,
+			Err:                ErrInvalidLength,
 		}
 	}
 
@@ -129,6 +129,7 @@ func Decode(data []byte) (FramedRecord, error) {
 	return rec, nil
 }
 
+// ValidateRecordLength checks if the given record length is within valid bounds.
 func ValidateRecordLength(length uint32) error {
 	if length < 1 {
 		return &ParseError{
@@ -150,9 +151,9 @@ func ValidateRecordLength(length uint32) error {
 	return nil
 }
 
-// ValidateRecord validates the record type and payload according to the record type.
-func ValidateRecord(recordType RecordType, payload []byte) error {
-	if err := ValidateRecordLength(uint32(len(payload)) + 1); err != nil {
+// ValidateRecordFrame validates the record type and payload according to predefined rules.
+func ValidateRecordFrame(recordType RecordType, payload []byte) error {
+	if err := ValidateRecordLength(uint32(len(payload)) + 1); err != nil { //nolint:gosec
 		return err
 	}
 	switch recordType {
@@ -163,9 +164,6 @@ func ValidateRecord(recordType RecordType, payload []byte) error {
 				RecordType: recordType,
 				Err:        ErrInvalidLength,
 			}
-		}		
-		if _, err := DecodeBeginTxnPayload(payload); err != nil {
-			return err
 		}
 	case RecordTypeCommitTransaction:
 		if len(payload) != TxnIdSize {
@@ -174,23 +172,50 @@ func ValidateRecord(recordType RecordType, payload []byte) error {
 				RecordType: recordType,
 				Err:        ErrInvalidLength,
 			}
-		}		
-		if _, err := DecodeCommitTxnPayload(payload); err != nil {
-			return err
 		}
 	case RecordTypePutOperation:
-		if _, err := DecodePutOpPayload(payload); err != nil {
-			return err
+		if len(payload) < TxnIdSize+PayloadHeaderSize+PayloadHeaderSize {
+			return &ParseError{
+				Kind:       KindInvalidLength,
+				Have:       len(payload),
+				Want:       TxnIdSize + PayloadHeaderSize + PayloadHeaderSize,
+				RecordType: recordType,
+				Err:        ErrInvalidLength,
+			}
+		}
+		if len(payload) > TxnIdSize+PayloadHeaderSize+MaxKeySize+PayloadHeaderSize+MaxValueSize {
+			return &ParseError{
+				Kind:       KindTooLarge,
+				RecordType: recordType,
+				Want:       TxnIdSize + PayloadHeaderSize + MaxKeySize + PayloadHeaderSize + MaxValueSize,
+				Have:       len(payload),
+				Err:        ErrTooLarge,
+			}
 		}
 	case RecordTypeDeleteOperation:
-		if _, err := DecodeDeleteOpPayload(payload); err != nil {
-			return err
+		if len(payload) < TxnIdSize+PayloadHeaderSize {
+			return &ParseError{
+				Kind:       KindInvalidLength,
+				Have:       len(payload),
+				Want:       TxnIdSize + PayloadHeaderSize,
+				RecordType: recordType,
+				Err:        ErrInvalidLength,
+			}
+		}
+		if len(payload) > TxnIdSize+PayloadHeaderSize+MaxKeySize {
+			return &ParseError{
+				Kind:       KindTooLarge,
+				RecordType: recordType,
+				Want:       TxnIdSize + PayloadHeaderSize + MaxKeySize,
+				Have:       len(payload),
+				Err:        ErrTooLarge,
+			}
 		}
 	default:
 		return &ParseError{
 			Kind:       KindInvalidType,
 			RecordType: recordType,
-			Err: 	  ErrInvalidType,
+			Err:        ErrInvalidType,
 		}
 	}
 

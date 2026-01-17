@@ -6,3 +6,5 @@ github.com/alecthomas/repr v0.5.2 h1:SU73FTI9D1P5UNtvseffFSGmdNci/O6RsqzeXJtP0Qs
 github.com/alecthomas/repr v0.5.2/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
+github.com/julianstephens/go-utils v0.2.6 h1:Rjcq7U/P83xqd26Hfm5EKoBqnOogw5DvTtDteO6p7Ik=
+github.com/julianstephens/go-utils v0.2.6/go.mod h1:ilfZp74DcsO0roHFxS+c5FTa4jtOD3BhdI01hBFaylk=

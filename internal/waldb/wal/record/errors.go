@@ -7,11 +7,11 @@ import (
 )
 
 var (
-	ErrTruncated     = errors.New("record: truncated")
-	ErrCorrupt       = errors.New("record: corrupt")
-	ErrTooLarge      = errors.New("record: too large")
-	ErrInvalidType   = errors.New("record: invalid type")
-	ErrInvalidLength = errors.New("record: invalid length (must be > 0)")
+	ErrTruncated        = errors.New("record: truncated")
+	ErrCorrupt          = errors.New("record: corrupt")
+	ErrTooLarge         = errors.New("record: too large")
+	ErrInvalidType      = errors.New("record: invalid type")
+	ErrInvalidLength    = errors.New("record: invalid length")
 	ErrChecksumMismatch = errors.New("record: checksum mismatch")
 )
 

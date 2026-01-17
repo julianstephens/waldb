@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"testing"
 
+	tst "github.com/julianstephens/go-utils/tests"
 	"github.com/julianstephens/waldb/internal/waldb/wal"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
@@ -13,22 +14,14 @@ func TestEncode(t *testing.T) {
 	// Test encoding a record
 	payload := []byte("test-payload")
 	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
-	if err != nil {
-		t.Fatalf("unexpected error encoding record: %v", err)
-	}
+	tst.RequireNoError(t, err)
 
 	// Verify it can be decoded
 	rec, err := record.Decode(encoded)
-	if err != nil {
-		t.Fatalf("unexpected error decoding record: %v", err)
-	}
+	tst.RequireNoError(t, err)
 
-	if rec.Record.Type != record.RecordTypePutOperation {
-		t.Errorf("expected type %v, got %v", record.RecordTypePutOperation, rec.Record.Type)
-	}
-	if !bytes.Equal(rec.Record.Payload, payload) {
-		t.Errorf("expected payload %v, got %v", payload, rec.Record.Payload)
-	}
+	tst.RequireDeepEqual(t, rec.Record.Type, record.RecordTypePutOperation)
+	tst.RequireDeepEqual(t, rec.Record.Payload, payload)
 }
 
 func TestEncodeMultiple(t *testing.T) {
