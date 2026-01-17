@@ -2,7 +2,6 @@ package wal
 
 import (
 	"encoding/binary"
-	"errors"
 	"io"
 
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
@@ -81,7 +80,7 @@ func (rr *RecordReader) Next() (record.FramedRecord, error) {
 			DeclaredLen:        recordLen,
 			RawType:            recordTypeRaw,
 			RecordType:         recordType,
-			Err:                errors.New("unknown record type"),
+			Err:                record.ErrInvalidType,
 		}
 	}
 
@@ -106,7 +105,7 @@ func (rr *RecordReader) Next() (record.FramedRecord, error) {
 			DeclaredLen:        recordLen,
 			RawType:            recordTypeRaw,
 			RecordType:         recordType,
-			Err:                errors.New("checksum mismatch"),
+			Err:                record.ErrChecksumMismatch,
 		}
 	}
 

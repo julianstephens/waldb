@@ -221,3 +221,7 @@ func ValidateRecordFrame(recordType RecordType, payload []byte) error {
 
 	return nil
 }
+
+func EncodedRecordSize(payloadLen int) int64 {
+	return RecordHeaderSize + 1 + int64(payloadLen) + RecordCRCSize
+}

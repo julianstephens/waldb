@@ -50,6 +50,13 @@ func NewSegmentWriter(segmentFile *os.File) (*SegmentWriter, error) {
 	}, nil
 }
 
+func (sw *SegmentWriter) CurrentOffset() int64 {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+
+	return sw.currOffset
+}
+
 // Append appends a record with the given type and payload to the segment.
 // It returns the offset where the record was written or an error.
 func (sw *SegmentWriter) Append(recordType record.RecordType, payload []byte) (offset int64, err error) {
