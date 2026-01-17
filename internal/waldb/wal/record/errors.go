@@ -114,3 +114,59 @@ func IsCorruption(err error) bool {
 	return errors.Is(err, ErrCorrupt) || errors.Is(err, ErrInvalidLength) || errors.Is(err, ErrTooLarge) ||
 		errors.Is(err, ErrInvalidType)
 }
+
+var (
+	ErrCodecTruncated = errors.New("record: codec truncated payload")
+	ErrCodecCorrupt   = errors.New("record: codec corrupt payload")
+	ErrCodecInvalid   = errors.New("record: codec invalid payload")
+)
+
+type CodecErrorKind uint8
+
+const (
+	CodecTruncated CodecErrorKind = iota
+	CodecCorrupt
+	CodecInvalid
+)
+
+func (k CodecErrorKind) String() string {
+	switch k {
+	case CodecTruncated:
+		return "truncated"
+	case CodecCorrupt:
+		return "corrupt"
+	case CodecInvalid:
+		return "invalid"
+	default:
+		return "unknown"
+	}
+}
+
+type CodecError struct {
+	Kind  CodecErrorKind
+	Field string // "txn_id", "key_len", "value_len", etc.
+	At    int    // byte offset within payload where failure occurred
+	Want  int
+	Have  int
+	Err   error
+}
+
+func (e *CodecError) Error() string {
+	return fmt.Sprintf("record: codec %s field=%s at=%d want=%d have=%d: %v",
+		e.Kind.String(), e.Field, e.At, e.Want, e.Have, e.Err,
+	)
+}
+func (e *CodecError) Unwrap() error { return e.Err }
+
+func (e *CodecError) Is(target error) bool {
+	switch target {
+	case ErrCodecTruncated:
+		return e.Kind == CodecTruncated
+	case ErrCodecCorrupt:
+		return e.Kind == CodecCorrupt
+	case ErrCodecInvalid:
+		return e.Kind == CodecInvalid
+	default:
+		return false
+	}
+}
