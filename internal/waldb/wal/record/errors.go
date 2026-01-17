@@ -12,6 +12,7 @@ var (
 	ErrTooLarge      = errors.New("record: too large")
 	ErrInvalidType   = errors.New("record: invalid type")
 	ErrInvalidLength = errors.New("record: invalid length (must be > 0)")
+	ErrChecksumMismatch = errors.New("record: checksum mismatch")
 )
 
 type ParseErrorKind uint8

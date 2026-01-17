@@ -42,7 +42,62 @@ func NewSegmentWriter(segmentFile *os.File) (*SegmentWriter, error) {
 }
 
 func (sw *SegmentWriter) Append(recordType record.RecordType, payload []byte) (offset int64, err error) {
-	return 0, nil
+	if err = record.ValidateRecord(recordType, payload); err != nil {
+		err = &SegmentWriteError{
+			Err:        ErrInvalidRecord,
+			Offset:     sw.currOffset,
+			RecordType: recordType,
+		}
+		return
+	}
+
+	framedRecord, err := record.Encode(recordType, payload)
+	if err != nil {
+		err = &SegmentWriteError{
+			Err:        ErrInvalidRecord,
+			Offset:     sw.currOffset,
+			RecordType: recordType,
+		}
+		return
+	}
+	if len(framedRecord) > record.MaxRecordSize {
+		err = &SegmentWriteError{
+			Err:        ErrInvalidRecord,
+			Offset:     sw.currOffset,
+			RecordType: recordType,
+			Have:       len(framedRecord),
+			Want:       record.MaxRecordSize,
+		}
+		return
+	}
+
+	offset = sw.currOffset
+
+	n, err := sw.writer.Write(framedRecord)
+	if err != nil {
+		err = &SegmentWriteError{
+			Err:        ErrAppendFailed,
+			Offset:     sw.currOffset,
+			RecordType: recordType,
+			Have:       n,
+			Want:       len(framedRecord),
+		}
+		return
+	}
+	sw.currOffset += int64(n)
+
+	if n < len(framedRecord) {
+		err = &SegmentWriteError{
+			Err:        ErrShortWrite,
+			Offset:     sw.currOffset,
+			RecordType: recordType,
+			Have:       n,
+			Want:       len(framedRecord),
+		}
+		return
+	}
+
+	return
 }
 
 func (sw *SegmentWriter) Flush() error {
