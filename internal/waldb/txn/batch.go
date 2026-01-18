@@ -1,6 +1,9 @@
 package txn
 
-import "github.com/julianstephens/waldb/internal/waldb/wal/record"
+import (
+	"github.com/julianstephens/waldb/internal/waldb/memtable"
+	"github.com/julianstephens/waldb/internal/waldb/wal/record"
+)
 
 // Batch represents a collection of operations
 // that can be applied as a single transaction.
@@ -39,6 +42,28 @@ func (b *Batch) Ops() []Op {
 	opsCopy := make([]Op, len(b.ops))
 	copy(opsCopy, b.ops)
 	return opsCopy
+}
+
+// ToMemtableOps converts the batch operations into memtable operations.
+func (b *Batch) ToMemtableOps() ([]memtable.Op, error) {
+	memOps := make([]memtable.Op, len(b.ops))
+	for i, op := range b.ops {
+		var memOpKind memtable.OpKind
+		switch op.Kind {
+		case OpPut:
+			memOpKind = memtable.OpPut
+		case OpDelete:
+			memOpKind = memtable.OpDelete
+		default:
+			return nil, ErrTxnInvalidOpKind
+		}
+		memOps[i] = memtable.Op{
+			Kind:  memOpKind,
+			Key:   op.Key,
+			Value: op.Value,
+		}
+	}
+	return memOps, nil
 }
 
 // Validate checks the batch for common errors.

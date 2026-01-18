@@ -3,6 +3,8 @@ package record
 import (
 	"encoding/binary"
 	"io"
+
+	"github.com/julianstephens/waldb/internal/waldb/errorutil"
 )
 
 // EncodeFrame encodes a record with the given type and payload.
@@ -32,9 +34,12 @@ func EncodeFrame(recordType RecordType, payload []byte) ([]byte, error) {
 // It returns the decoded Record or an error.
 func DecodeFrame(data []byte) (FramedRecord, error) {
 	if len(data) < RecordHeaderSize+RecordCRCSize {
+		zero := int64(0)
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &zero,
+			},
 			Kind:               KindTruncated,
-			Offset:             0,
 			SafeTruncateOffset: 0,
 			Want:               RecordHeaderSize + RecordCRCSize,
 			Have:               len(data),
@@ -45,7 +50,10 @@ func DecodeFrame(data []byte) (FramedRecord, error) {
 	recordLen := binary.LittleEndian.Uint32(data[:RecordHeaderSize])
 	if err := ValidateRecordLength(recordLen); err != nil {
 		if pe, ok := AsParseError(err); ok {
-			pe.Offset = 0
+			zero := int64(0)
+			pe.Coordinates = &errorutil.Coordinates{
+				Offset: &zero,
+			}
 			pe.SafeTruncateOffset = 0
 			return FramedRecord{}, pe
 		}
@@ -54,9 +62,12 @@ func DecodeFrame(data []byte) (FramedRecord, error) {
 
 	wantTotal := RecordHeaderSize + int(recordLen) + RecordCRCSize
 	if len(data) < wantTotal {
+		zero := int64(0)
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &zero,
+			},
 			Kind:               KindTruncated,
-			Offset:             0,
 			SafeTruncateOffset: 0,
 			DeclaredLen:        recordLen,
 			Want:               wantTotal,
@@ -65,9 +76,12 @@ func DecodeFrame(data []byte) (FramedRecord, error) {
 		}
 	}
 	if len(data) != wantTotal {
+		zero := int64(0)
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &zero,
+			},
 			Kind:               KindCorrupt,
-			Offset:             0,
 			SafeTruncateOffset: 0,
 			DeclaredLen:        recordLen,
 			Want:               wantTotal,
@@ -79,9 +93,12 @@ func DecodeFrame(data []byte) (FramedRecord, error) {
 	rawType := data[RecordHeaderSize]
 	recordType := RecordType(rawType)
 	if recordType <= RecordTypeUnknown || recordType > RecordTypeDeleteOperation {
+		zero := int64(0)
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &zero,
+			},
 			Kind:               KindInvalidType,
-			Offset:             0,
 			SafeTruncateOffset: 0,
 			DeclaredLen:        recordLen,
 			RawType:            rawType,
@@ -104,9 +121,12 @@ func DecodeFrame(data []byte) (FramedRecord, error) {
 	}
 
 	if !VerifyChecksum(&rec.Record) {
+		zero := int64(0)
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &zero,
+			},
 			Kind:               KindChecksumMismatch,
-			Offset:             0,
 			SafeTruncateOffset: 0,
 			DeclaredLen:        recordLen,
 			RawType:            rawType,

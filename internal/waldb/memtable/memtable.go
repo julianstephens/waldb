@@ -9,6 +9,21 @@ var (
 	ErrNilKey = errors.New("memtable: nil key")
 )
 
+// OpKind describes a memtable operation.
+type OpKind uint8
+
+const (
+	OpPut OpKind = iota
+	OpDelete
+)
+
+// Op is a single memtable mutation.
+type Op struct {
+	Kind  OpKind
+	Key   []byte
+	Value []byte // for OpPut
+}
+
 // Entry represents a stored value or a tombstone.
 type Entry struct {
 	Value     []byte
@@ -110,19 +125,4 @@ func (t *Table) Snapshot() map[string]Entry {
 		out[k] = Entry{Value: v, Tombstone: e.Tombstone}
 	}
 	return out
-}
-
-// OpKind describes a memtable operation.
-type OpKind uint8
-
-const (
-	OpPut OpKind = iota
-	OpDelete
-)
-
-// Op is a single memtable mutation.
-type Op struct {
-	Kind  OpKind
-	Key   []byte
-	Value []byte // for OpPut
 }

@@ -44,8 +44,9 @@ func TestCommitValidBatch(t *testing.T) {
 	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))
 
-	err = db.Commit(batch)
+	txnId, err := db.Commit(batch)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
 }
 
 func TestCommitMultiplePuts(t *testing.T) {
@@ -60,8 +61,9 @@ func TestCommitMultiplePuts(t *testing.T) {
 	batch.Put([]byte("key2"), []byte("value2"))
 	batch.Put([]byte("key3"), []byte("value3"))
 
-	err = db.Commit(batch)
+	txnId, err := db.Commit(batch)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
 }
 
 func TestCommitMultipleDeletes(t *testing.T) {
@@ -75,15 +77,17 @@ func TestCommitMultipleDeletes(t *testing.T) {
 	batch1 := txn.NewBatch()
 	batch1.Put([]byte("key1"), []byte("value1"))
 	batch1.Put([]byte("key2"), []byte("value2"))
-	err = db.Commit(batch1)
+	txnId1, err := db.Commit(batch1)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId1, 0, "expected non-zero txnId")
 
 	// Then delete them
 	batch2 := txn.NewBatch()
 	batch2.Delete([]byte("key1"))
 	batch2.Delete([]byte("key2"))
-	err = db.Commit(batch2)
+	txnId2, err := db.Commit(batch2)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId2, txnId1, "expected txnId2 > txnId1")
 }
 
 func TestCommitMixedOperations(t *testing.T) {
@@ -98,8 +102,9 @@ func TestCommitMixedOperations(t *testing.T) {
 	batch1.Put([]byte("key1"), []byte("value1"))
 	batch1.Put([]byte("key2"), []byte("value2"))
 	batch1.Put([]byte("key3"), []byte("value3"))
-	err = db.Commit(batch1)
+	txnId1, err := db.Commit(batch1)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId1, 0, "expected non-zero txnId")
 
 	// Second batch: mixed put and delete
 	batch2 := txn.NewBatch()
@@ -107,8 +112,9 @@ func TestCommitMixedOperations(t *testing.T) {
 	batch2.Delete([]byte("key1"))
 	batch2.Put([]byte("key2"), []byte("updated"))
 	batch2.Delete([]byte("key3"))
-	err = db.Commit(batch2)
+	txnId2, err := db.Commit(batch2)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId2, txnId1, "expected txnId2 > txnId1")
 }
 
 func TestCommitEmptyBatch(t *testing.T) {
@@ -119,8 +125,9 @@ func TestCommitEmptyBatch(t *testing.T) {
 	}()
 
 	batch := txn.NewBatch()
-	err = db.Commit(batch)
+	txnId, err := db.Commit(batch)
 	tst.AssertNotNil(t, err, "expected error for empty batch")
+	tst.AssertEqual(t, txnId, 0, "expected zero txnId on error")
 
 	// Verify it's a commit invalid batch error
 	var dbErr *waldb.DBError
@@ -138,8 +145,9 @@ func TestCommitInvalidKey(t *testing.T) {
 	batch := txn.NewBatch()
 	batch.Put(nil, []byte("value"))
 
-	err = db.Commit(batch)
+	txnId, err := db.Commit(batch)
 	tst.AssertNotNil(t, err, "expected error for nil key")
+	tst.AssertEqual(t, txnId, 0, "expected zero txnId on error")
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrCommitInvalidBatch), "expected ErrCommitInvalidBatch")
 }
 
@@ -154,8 +162,9 @@ func TestCommitOversizeKey(t *testing.T) {
 	oversizeKey := make([]byte, 4097) // MaxKeySize is 4096
 	batch.Put(oversizeKey, []byte("value"))
 
-	err = db.Commit(batch)
+	txnId, err := db.Commit(batch)
 	tst.AssertNotNil(t, err, "expected error for oversized key")
+	tst.AssertEqual(t, txnId, 0, "expected zero txnId on error")
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrCommitInvalidBatch), "expected ErrCommitInvalidBatch")
 }
 
@@ -169,20 +178,23 @@ func TestMultipleSequentialCommits(t *testing.T) {
 	// Commit 1
 	batch1 := txn.NewBatch()
 	batch1.Put([]byte("key1"), []byte("value1"))
-	err = db.Commit(batch1)
+	txnId1, err := db.Commit(batch1)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId1, 0, "expected non-zero txnId")
 
 	// Commit 2
 	batch2 := txn.NewBatch()
 	batch2.Put([]byte("key2"), []byte("value2"))
-	err = db.Commit(batch2)
+	txnId2, err := db.Commit(batch2)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId2, txnId1, "expected txnId2 > txnId1")
 
 	// Commit 3
 	batch3 := txn.NewBatch()
 	batch3.Put([]byte("key3"), []byte("value3"))
-	err = db.Commit(batch3)
+	txnId3, err := db.Commit(batch3)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId3, txnId2, "expected txnId3 > txnId2")
 }
 
 func TestCommitLargeValue(t *testing.T) {
@@ -196,8 +208,9 @@ func TestCommitLargeValue(t *testing.T) {
 	largeValue := make([]byte, 1024*1024) // 1MB value
 	batch.Put([]byte("large_key"), largeValue)
 
-	err = db.Commit(batch)
+	txnId, err := db.Commit(batch)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
 }
 
 func TestCommitEmptyValue(t *testing.T) {
@@ -210,8 +223,9 @@ func TestCommitEmptyValue(t *testing.T) {
 	batch := txn.NewBatch()
 	batch.Put([]byte("key"), []byte{}) // Empty value
 
-	err = db.Commit(batch)
+	txnId, err := db.Commit(batch)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
 }
 
 func TestCommitBinaryData(t *testing.T) {
@@ -226,8 +240,9 @@ func TestCommitBinaryData(t *testing.T) {
 	binaryValue := []byte{0xFF, 0xFE, 0xFD, 0x00}
 	batch.Put(binaryKey, binaryValue)
 
-	err = db.Commit(batch)
+	txnId, err := db.Commit(batch)
 	tst.RequireNoError(t, err)
+	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
 }
 
 func TestOpenCreatesDirectory(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/julianstephens/waldb/internal/waldb/errorutil"
 )
 
 var (
@@ -49,9 +51,8 @@ func (k ParseErrorKind) String() string {
 }
 
 type ParseError struct {
+	*errorutil.Coordinates
 	Kind ParseErrorKind
-	// Offset is the starting byte offset of the record (at the length prefix)
-	Offset int64
 	// SafeTruncateOffset is the byte offset where it is safe to truncate the WAL
 	// to remove the invalid tail. For record-level parse failures this should be
 	// equal to Offset (start of the failing record).
@@ -71,8 +72,12 @@ func (e *ParseError) Error() string {
 	if e.Err != nil {
 		cause = e.Err.Error()
 	}
-	return fmt.Sprintf("record parse error kind=%s offset=%d safe=%d len=%d type=0x%02x want=%d have=%d: %s",
-		e.Kind.String(), e.Offset, e.SafeTruncateOffset, e.DeclaredLen, e.RawType, e.Want, e.Have, cause)
+	coords := ""
+	if e.Coordinates != nil && e.Offset != nil {
+		coords = fmt.Sprintf("offset=%d ", *e.Offset)
+	}
+	return fmt.Sprintf("record parse error kind=%s %ssafe=%d len=%d type=0x%02x want=%d have=%d: %s",
+		e.Kind.String(), coords, e.SafeTruncateOffset, e.DeclaredLen, e.RawType, e.Want, e.Have, cause)
 }
 
 func (e *ParseError) Unwrap() error {

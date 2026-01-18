@@ -3,6 +3,8 @@ package record
 import (
 	"encoding/binary"
 	"io"
+
+	"github.com/julianstephens/waldb/internal/waldb/errorutil"
 )
 
 type FrameReader struct {
@@ -32,8 +34,10 @@ func (rr *FrameReader) Next() (FramedRecord, error) {
 		}
 
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &recordStart,
+			},
 			Kind:               KindTruncated,
-			Offset:             recordStart,
 			SafeTruncateOffset: recordStart,
 			Want:               RecordHeaderSize,
 			Have:               n,
@@ -44,7 +48,9 @@ func (rr *FrameReader) Next() (FramedRecord, error) {
 	recordLen := binary.LittleEndian.Uint32(hdr)
 	if err = ValidateRecordLength(recordLen); err != nil {
 		if pe, ok := AsParseError(err); ok {
-			pe.Offset = recordStart
+			pe.Coordinates = &errorutil.Coordinates{
+				Offset: &recordStart,
+			}
 			pe.SafeTruncateOffset = recordStart
 			return FramedRecord{}, pe
 		}
@@ -57,8 +63,10 @@ func (rr *FrameReader) Next() (FramedRecord, error) {
 	if err != nil {
 		rr.offset += int64(RecordHeaderSize + n)
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &recordStart,
+			},
 			Kind:               KindTruncated,
-			Offset:             recordStart,
 			SafeTruncateOffset: recordStart,
 			DeclaredLen:        recordLen,
 			Want:               int(recordLen) + RecordCRCSize,
@@ -72,8 +80,10 @@ func (rr *FrameReader) Next() (FramedRecord, error) {
 	recordType := RecordType(recordTypeRaw)
 	if recordType <= RecordTypeUnknown || recordType > RecordTypeDeleteOperation {
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &recordStart,
+			},
 			Kind:               KindInvalidType,
-			Offset:             recordStart,
 			SafeTruncateOffset: recordStart,
 			DeclaredLen:        recordLen,
 			RawType:            recordTypeRaw,
@@ -97,8 +107,10 @@ func (rr *FrameReader) Next() (FramedRecord, error) {
 
 	if !VerifyChecksum(&rec.Record) {
 		return FramedRecord{}, &ParseError{
+			Coordinates: &errorutil.Coordinates{
+				Offset: &recordStart,
+			},
 			Kind:               KindChecksumMismatch,
-			Offset:             recordStart,
 			SafeTruncateOffset: recordStart,
 			DeclaredLen:        recordLen,
 			RawType:            recordTypeRaw,

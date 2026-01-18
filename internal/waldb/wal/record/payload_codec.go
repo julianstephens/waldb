@@ -53,48 +53,55 @@ func rejectTrailing(data []byte, expectedLen int, field string) error {
 	}
 }
 
+func encodeTxnID(txnId uint64) []byte {
+	data := make([]byte, TxnIdSize)
+	binary.LittleEndian.PutUint64(data[:TxnIdSize], txnId)
+	return data
+}
+
+func decodeTxnID(data []byte) (uint64, error) {
+	txnId, err := u64le(data, 0, "txn_id")
+	if err != nil {
+		return 0, err
+	}
+	if err := rejectTrailing(data, TxnIdSize, "payload_length"); err != nil {
+		return 0, err
+	}
+	return txnId, nil
+}
+
 // Begin / Commit payloads
 
 // EncodeBeginTxnPayload encodes the payload for a BeginTransaction record.
 // Format: [txn_id (8)]
 func EncodeBeginTxnPayload(txnId uint64) ([]byte, error) {
-	payload := make([]byte, TxnIdSize)
-	binary.LittleEndian.PutUint64(payload[:TxnIdSize], txnId)
-	return payload, nil
+	return encodeTxnID(txnId), nil
 }
 
 // DecodeBeginTxnPayload decodes the payload for a BeginTransaction record.
 // Format: [txn_id (8)]
 func DecodeBeginTxnPayload(data []byte) (*BeginCommitTransactionPayload, error) {
-	txnID, err := u64le(data, 0, "txn_id")
+	txnId, err := decodeTxnID(data)
 	if err != nil {
 		return nil, err
 	}
-	if err := rejectTrailing(data, TxnIdSize, "payload_length"); err != nil {
-		return nil, err
-	}
-	return &BeginCommitTransactionPayload{TxnID: txnID}, nil
+	return &BeginCommitTransactionPayload{TxnID: txnId}, nil
 }
 
 // EncodeCommitTxnPayload encodes the payload for a CommitTransaction record.
 // Format: [txn_id (8)]
 func EncodeCommitTxnPayload(txnId uint64) ([]byte, error) {
-	payload := make([]byte, TxnIdSize)
-	binary.LittleEndian.PutUint64(payload[:TxnIdSize], txnId)
-	return payload, nil
+	return encodeTxnID(txnId), nil
 }
 
 // DecodeCommitTxnPayload decodes the payload for a CommitTransaction record.
 // Format: [txn_id (8)]
 func DecodeCommitTxnPayload(data []byte) (*BeginCommitTransactionPayload, error) {
-	txnID, err := u64le(data, 0, "txn_id")
+	txnId, err := decodeTxnID(data)
 	if err != nil {
 		return nil, err
 	}
-	if err := rejectTrailing(data, TxnIdSize, "payload_length"); err != nil {
-		return nil, err
-	}
-	return &BeginCommitTransactionPayload{TxnID: txnID}, nil
+	return &BeginCommitTransactionPayload{TxnID: txnId}, nil
 }
 
 // PUT payloads
@@ -146,7 +153,7 @@ func EncodePutOpPayload(txnId uint64, key, value []byte) ([]byte, error) {
 func DecodePutOpPayload(data []byte) (*PutOpPayload, error) {
 	off := 0
 
-	txnID, err := u64le(data, off, "txn_id")
+	txnId, err := u64le(data, off, "txn_id")
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +212,7 @@ func DecodePutOpPayload(data []byte) (*PutOpPayload, error) {
 	}
 
 	return &PutOpPayload{
-		TxnID: txnID,
+		TxnID: txnId,
 		Key:   data[keyStart:keyEnd],
 		Value: data[valueStart:valueEnd],
 	}, nil
@@ -245,7 +252,7 @@ func EncodeDeleteOpPayload(txnId uint64, key []byte) ([]byte, error) {
 func DecodeDeleteOpPayload(data []byte) (*DeleteOpPayload, error) {
 	off := 0
 
-	txnID, err := u64le(data, off, "txn_id")
+	txnId, err := u64le(data, off, "txn_id")
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +287,7 @@ func DecodeDeleteOpPayload(data []byte) (*DeleteOpPayload, error) {
 	}
 
 	return &DeleteOpPayload{
-		TxnID: txnID,
+		TxnID: txnId,
 		Key:   data[keyStart:keyEnd],
 	}, nil
 }

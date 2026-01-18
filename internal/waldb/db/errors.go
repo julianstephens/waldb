@@ -10,6 +10,7 @@ var (
 	ErrOpenFailed         = errors.New("db: open failed")
 	ErrInitFailed         = errors.New("db: init failed")
 	ErrClosed             = errors.New("db: closed")
+	ErrCloseFailed        = errors.New("db: close failed")
 	ErrReplayFailed       = errors.New("db: replay failed")
 	ErrWALOpenFailed      = errors.New("db: wal open failed")
 	ErrCommitFailed       = errors.New("db: commit failed")

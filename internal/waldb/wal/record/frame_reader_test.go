@@ -126,8 +126,8 @@ func TestNextTruncatedTailDetection(t *testing.T) {
 	if parseErr.Kind != record.KindTruncated {
 		t.Errorf("expected KindTruncated for truncated tail, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -155,8 +155,8 @@ func TestNextTruncatedLengthDetection(t *testing.T) {
 	if parseErr.Kind != record.KindTruncated {
 		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -189,8 +189,8 @@ func TestNextChecksumMismatchDetection(t *testing.T) {
 	if parseErr.Kind != record.KindChecksumMismatch {
 		t.Errorf("expected KindChecksumMismatch, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -219,8 +219,8 @@ func TestNextInvalidLengthDetection(t *testing.T) {
 	if parseErr.Kind != record.KindInvalidLength {
 		t.Errorf("expected KindInvalidLength, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -249,8 +249,8 @@ func TestNextTooLargeLengthDetection(t *testing.T) {
 	if parseErr.Kind != record.KindTooLarge {
 		t.Errorf("expected KindTooLarge, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -279,8 +279,8 @@ func TestNextInvalidTypeDetection(t *testing.T) {
 	if parseErr.Kind != record.KindInvalidType {
 		t.Errorf("expected KindInvalidType, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -349,8 +349,8 @@ func TestNextPartialHeaderOneByte(t *testing.T) {
 	if parseErr.Kind != record.KindTruncated {
 		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.Want != 4 {
 		t.Errorf("expected Want=4, got %d", parseErr.Want)
@@ -377,8 +377,8 @@ func TestNextPartialHeaderThreeBytes(t *testing.T) {
 	if parseErr.Kind != record.KindTruncated {
 		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.Want != 4 {
 		t.Errorf("expected Want=4, got %d", parseErr.Want)

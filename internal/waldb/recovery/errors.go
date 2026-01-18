@@ -4,21 +4,25 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/julianstephens/waldb/internal/waldb/errorutil"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
 type ReplayDecodeError struct {
-	SegId        uint64
-	RecordOffset int64
-	SafeOffset   int64
-	DeclaredLen  uint32
-	RecordType   record.RecordType
-	Err          error
+	*errorutil.Coordinates
+	SafeOffset  int64
+	DeclaredLen uint32
+	RecordType  record.RecordType
+	Err         error
 }
 
 func (e *ReplayDecodeError) Error() string {
-	return fmt.Sprintf("recovery: decode error seg=%d at=%d safe_at=%d type=%d declared_len=%d: %v",
-		e.SegId, e.RecordOffset, e.SafeOffset, e.RecordType, e.DeclaredLen, e.Err,
+	coords := ""
+	if e.Coordinates != nil {
+		coords = e.FormatCoordinates()
+	}
+	return fmt.Sprintf("recovery: decode error %s safe_at=%d type=%d declared_len=%d: %v",
+		coords, e.SafeOffset, e.RecordType, e.DeclaredLen, e.Err,
 	)
 }
 func (e *ReplayDecodeError) Unwrap() error { return e.Err }
@@ -33,10 +37,8 @@ var (
 )
 
 type ReplayLogicError struct {
-	SegId    uint64
-	AtOffset int64
+	*errorutil.Coordinates
 	Type     record.RecordType
-	TxnID    uint64
 	CurTxnID uint64
 	Err      error
 }

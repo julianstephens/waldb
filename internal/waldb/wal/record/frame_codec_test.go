@@ -216,8 +216,8 @@ func TestDecodeFrameTooShort(t *testing.T) {
 	if parseErr.Kind != record.KindTruncated {
 		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -242,8 +242,8 @@ func TestDecodeFrameZeroLength(t *testing.T) {
 	if parseErr.Kind != record.KindInvalidLength {
 		t.Errorf("expected KindInvalidLength, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -272,8 +272,8 @@ func TestDecodeFrameTooLarge(t *testing.T) {
 	if parseErr.Kind != record.KindTooLarge {
 		t.Errorf("expected KindTooLarge, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -305,8 +305,8 @@ func TestDecodeFrameUnknownType(t *testing.T) {
 	if parseErr.Kind != record.KindInvalidType {
 		t.Errorf("expected KindInvalidType, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -338,8 +338,8 @@ func TestDecodeFrameInvalidType(t *testing.T) {
 	if parseErr.Kind != record.KindInvalidType {
 		t.Errorf("expected KindInvalidType, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -372,8 +372,8 @@ func TestDecodeFrameChecksumMismatch(t *testing.T) {
 	if parseErr.Kind != record.KindChecksumMismatch {
 		t.Errorf("expected KindChecksumMismatch, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
@@ -406,8 +406,8 @@ func TestDecodeFrameExtraData(t *testing.T) {
 	if parseErr.Kind != record.KindCorrupt {
 		t.Errorf("expected KindCorrupt, got %v", parseErr.Kind)
 	}
-	if parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", parseErr.Offset)
+	if *parseErr.Offset != 0 {
+		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
 	}
 	if parseErr.SafeTruncateOffset != 0 {
 		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)

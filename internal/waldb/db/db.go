@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 
+	"github.com/julianstephens/waldb/internal/waldb"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/recovery"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
@@ -38,11 +39,14 @@ func Open(path string) (*DB, error) {
 }
 
 // Close closes the database.
-// This is a placeholder implementation.
 func (db *DB) Close() error {
 	if db.closed {
 		return wrapDBErr("close", ErrClosed, db.path, nil)
 	}
+	if err := db.log.Close(); err != nil {
+		return wrapDBErr("close", ErrCloseFailed, db.path, err)
+	}
+
 	db.closed = true
 	return nil
 }
@@ -59,42 +63,29 @@ func (db *DB) IsClosed() bool {
 
 // Commit applies the operations in the given batch as a single transaction.
 // It writes the transaction to the WAL and updates the in-memory state.
-func (db *DB) Commit(b *txn.Batch) error {
-	if _, err := db.txnw.Commit(b); err != nil {
+func (db *DB) Commit(b *txn.Batch) (uint64, error) {
+	txnId, err := db.txnw.Commit(b)
+	if err != nil {
 		if errors.Is(err, txn.ErrCommitInvalidBatch) {
-			return wrapDBErr("commit", ErrCommitInvalidBatch, db.path, err)
+			return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.path, err)
 		}
-		return wrapDBErr("commit", ErrCommitFailed, db.path, err)
+		return 0, wrapDBErr("commit", ErrCommitFailed, db.path, err)
 	}
 
-	ops := b.Ops()
-	memOps := make([]memtable.Op, len(ops))
-	for i, op := range ops {
-		var memOpKind memtable.OpKind
-		switch op.Kind {
-		case txn.OpPut:
-			memOpKind = memtable.OpPut
-		case txn.OpDelete:
-			memOpKind = memtable.OpDelete
-		default:
-			return wrapDBErr("commit", ErrCommitFailed, db.path, errors.New("unknown operation kind"))
-		}
-		memOps[i] = memtable.Op{
-			Kind:  memOpKind,
-			Key:   op.Key,
-			Value: op.Value,
-		}
+	memOps, err := b.ToMemtableOps()
+	if err != nil {
+		return txnId, wrapDBErr("commit", ErrCommitFailed, db.path, err)
 	}
 
 	if err := db.memtable.Apply(memOps); err != nil {
-		return wrapDBErr("commit", ErrCommitFailed, db.path, err)
+		return txnId, wrapDBErr("commit", ErrCommitFailed, db.path, err)
 	}
 
-	return nil
+	return txnId, nil
 }
 
 func (db *DB) initialize() error {
-	log, err := wal.OpenLog(db.path, wal.LogOpts{})
+	log, err := wal.OpenLog(db.path, wal.LogOpts{SegmentMaxBytes: waldb.DefaultSegmentMaxBytes})
 	if err != nil {
 		return wrapDBErr("open", ErrWALOpenFailed, db.path, err)
 	}

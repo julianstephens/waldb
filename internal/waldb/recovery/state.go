@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"github.com/julianstephens/waldb/internal/waldb/errorutil"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
@@ -41,19 +42,25 @@ func newReplayState(mem *memtable.Table) *replayState {
 func (s *replayState) onBegin(payload record.BeginCommitTransactionPayload, ctx recordCtx) error {
 	if payload.TxnID == 0 {
 		return &ReplayLogicError{
-			AtOffset: ctx.offset,
-			Type:     ctx.recordType,
-			TxnID:    payload.TxnID,
-			Err:      ErrTxnMismatch,
+			Coordinates: &errorutil.Coordinates{
+				SegId:  &ctx.segId,
+				Offset: &ctx.offset,
+				TxnID:  &payload.TxnID,
+			},
+			Type: ctx.recordType,
+			Err:  ErrTxnMismatch,
 		}
 	}
 
 	if _, exists := s.inflight[payload.TxnID]; exists {
 		return &ReplayLogicError{
-			AtOffset: ctx.offset,
-			Type:     ctx.recordType,
-			TxnID:    payload.TxnID,
-			Err:      ErrDoubleBegin,
+			Coordinates: &errorutil.Coordinates{
+				SegId:  &ctx.segId,
+				Offset: &ctx.offset,
+				TxnID:  &payload.TxnID,
+			},
+			Type: ctx.recordType,
+			Err:  ErrDoubleBegin,
 		}
 	}
 
@@ -65,10 +72,13 @@ func (s *replayState) onBegin(payload record.BeginCommitTransactionPayload, ctx 
 func (s *replayState) onPut(payload record.PutOpPayload, ctx recordCtx) error {
 	if _, exists := s.inflight[payload.TxnID]; !exists {
 		return &ReplayLogicError{
-			AtOffset: ctx.offset,
-			Type:     ctx.recordType,
-			TxnID:    payload.TxnID,
-			Err:      ErrOrphanOp,
+			Coordinates: &errorutil.Coordinates{
+				SegId:  &ctx.segId,
+				Offset: &ctx.offset,
+				TxnID:  &payload.TxnID,
+			},
+			Type: ctx.recordType,
+			Err:  ErrOrphanOp,
 		}
 	}
 
@@ -83,10 +93,13 @@ func (s *replayState) onPut(payload record.PutOpPayload, ctx recordCtx) error {
 func (s *replayState) onDel(payload record.DeleteOpPayload, ctx recordCtx) error {
 	if _, exists := s.inflight[payload.TxnID]; !exists {
 		return &ReplayLogicError{
-			AtOffset: ctx.offset,
-			Type:     ctx.recordType,
-			TxnID:    payload.TxnID,
-			Err:      ErrOrphanOp,
+			Coordinates: &errorutil.Coordinates{
+				SegId:  &ctx.segId,
+				Offset: &ctx.offset,
+				TxnID:  &payload.TxnID,
+			},
+			Type: ctx.recordType,
+			Err:  ErrOrphanOp,
 		}
 	}
 
@@ -102,19 +115,25 @@ func (s *replayState) onDel(payload record.DeleteOpPayload, ctx recordCtx) error
 func (s *replayState) onCommit(payload record.BeginCommitTransactionPayload, ctx recordCtx) error {
 	if _, exists := s.inflight[payload.TxnID]; !exists {
 		return &ReplayLogicError{
-			AtOffset: ctx.offset,
-			Type:     ctx.recordType,
-			TxnID:    payload.TxnID,
-			Err:      ErrCommitNoTxn,
+			Coordinates: &errorutil.Coordinates{
+				SegId:  &ctx.segId,
+				Offset: &ctx.offset,
+				TxnID:  &payload.TxnID,
+			},
+			Type: ctx.recordType,
+			Err:  ErrCommitNoTxn,
 		}
 	}
 
 	if payload.TxnID <= s.maxCommitted {
 		return &ReplayLogicError{
-			AtOffset: ctx.offset,
-			Type:     ctx.recordType,
-			TxnID:    payload.TxnID,
-			Err:      ErrTxnNotMonotonic,
+			Coordinates: &errorutil.Coordinates{
+				SegId:  &ctx.segId,
+				Offset: &ctx.offset,
+				TxnID:  &payload.TxnID,
+			},
+			Type: ctx.recordType,
+			Err:  ErrTxnNotMonotonic,
 		}
 	}
 
@@ -137,10 +156,13 @@ func (s *replayState) onCommit(payload record.BeginCommitTransactionPayload, ctx
 
 	if err := s.memtable.Apply(memOps); err != nil {
 		return &ReplayLogicError{
-			AtOffset: ctx.offset,
-			Type:     ctx.recordType,
-			TxnID:    payload.TxnID,
-			Err:      err,
+			Coordinates: &errorutil.Coordinates{
+				SegId:  &ctx.segId,
+				Offset: &ctx.offset,
+				TxnID:  &payload.TxnID,
+			},
+			Type: ctx.recordType,
+			Err:  err,
 		}
 	}
 
