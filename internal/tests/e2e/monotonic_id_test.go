@@ -83,7 +83,7 @@ func TestIdSeededFromRecovery(t *testing.T) {
 func TestIdAcrossRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	// 1. Open(path)
+	// 1. Open(path) - fresh DB
 	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
 	tst.RequireNoError(t, err)
 
@@ -92,7 +92,7 @@ func TestIdAcrossRestart(t *testing.T) {
 	batchA.Put([]byte("key-a"), []byte("val-a"))
 	txnIdA, err := db.Commit(batchA)
 	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnIdA, uint64(0), "first txnId should be > 0")
+	tst.AssertEqual(t, txnIdA, uint64(1), "first txnId in fresh DB should be exactly 1")
 
 	// 3. Close
 	err = db.Close()
@@ -111,6 +111,7 @@ func TestIdAcrossRestart(t *testing.T) {
 	txnIdB, err := db2.Commit(batchB)
 	tst.RequireNoError(t, err)
 
-	// 6. Assert txn IDs are strictly increasing
-	tst.AssertGreaterThan(t, txnIdB, txnIdA, "txnId after restart should be greater than previous txnId")
+	// 6. Assert txn IDs are consecutive with no gaps (txnIdB == txnIdA + 1)
+	expectedTxnIdB := txnIdA + 1
+	tst.AssertEqual(t, txnIdB, expectedTxnIdB, "txnId after restart should be exactly txnIdA+1 (no gaps allowed)")
 }

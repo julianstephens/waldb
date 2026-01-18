@@ -85,6 +85,12 @@ func (db *DB) Commit(b *txn.Batch) (uint64, error) {
 	return txnId, nil
 }
 
+// Get retrieves the value associated with the given key from the in-memory memtable.
+// Returns the value and true if the key exists and is not deleted, otherwise returns nil and false.
+func (db *DB) Get(key []byte) ([]byte, bool) {
+	return db.memtable.Get(key)
+}
+
 func (db *DB) initialize() error {
 	log, err := wal.OpenLog(db.path, wal.LogOpts{SegmentMaxBytes: waldb.DefaultSegmentMaxBytes})
 	if err != nil {
