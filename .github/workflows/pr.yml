@@ -30,8 +30,9 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.6
-  test:
-    name: Test
+
+  unit-test:
+    name: Unit Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -44,5 +45,22 @@ jobs:
           go-version: "1.25"
           cache: true
 
-      - name: Run tests
-        run: go test -race -v ./...
+      - name: Run unit tests
+        run: go test -race -v ./internal/waldb/... ./cmd/...
+
+  e2e-test:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Run e2e tests
+        run: go test -race -v ./internal/tests/e2e/...
