@@ -3,6 +3,7 @@ package record_test
 import (
 	"testing"
 
+	tst "github.com/julianstephens/go-utils/tests"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
@@ -12,22 +13,16 @@ func TestComputeChecksum(t *testing.T) {
 	crc1 := record.ComputeChecksum(data)
 	crc2 := record.ComputeChecksum(data)
 
-	if crc1 != crc2 {
-		t.Errorf("checksum not deterministic: %d != %d", crc1, crc2)
-	}
+	tst.RequireDeepEqual(t, crc1, crc2)
 
 	// Test empty data produces zero (valid for CRC algorithms)
 	emptyCRC := record.ComputeChecksum([]byte{})
-	if emptyCRC != 0 {
-		t.Errorf("expected checksum of empty data to be 0, got %d", emptyCRC)
-	}
+	tst.RequireDeepEqual(t, emptyCRC, uint32(0))
 
 	// Test different data produces different checksums
 	data2 := []byte("different data")
 	crc3 := record.ComputeChecksum(data2)
-	if crc1 == crc3 {
-		t.Error("different data should produce different checksums")
-	}
+	tst.AssertFalse(t, crc1 == crc3, "different data should produce different checksums")
 }
 
 func TestComputeChecksumDeterministic(t *testing.T) {
