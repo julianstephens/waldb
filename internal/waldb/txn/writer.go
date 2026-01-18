@@ -1,6 +1,7 @@
 package txn
 
 import (
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/wal"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
@@ -51,7 +52,7 @@ func (w *Writer) Commit(batch *Batch) (txnId uint64, err error) {
 
 	for i, op := range batch.Ops() {
 		switch op.Kind {
-		case OpPut:
+		case kv.OpPut:
 			putOp, err2 := record.EncodePutOpPayload(txnId, op.Key, op.Value)
 			if err2 != nil {
 				err = wrapCommitOpErr(StageEncodeOp, ErrCommitEncodeOp, txnId, i, op, err2)
@@ -62,7 +63,7 @@ func (w *Writer) Commit(batch *Batch) (txnId uint64, err error) {
 				err = wrapCommitOpErr(StageAppendOp, ErrCommitAppendOp, txnId, i, op, err2)
 				return
 			}
-		case OpDelete:
+		case kv.OpDelete:
 			deleteOp, err2 := record.EncodeDeleteOpPayload(txnId, op.Key)
 			if err2 != nil {
 				err = wrapCommitOpErr(StageEncodeOp, ErrCommitEncodeOp, txnId, i, op, err2)

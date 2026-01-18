@@ -3,6 +3,8 @@ package txn
 import (
 	"errors"
 	"fmt"
+
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 )
 
 var (
@@ -45,7 +47,7 @@ type BatchValidationError struct {
 
 	OpIndex int // index in batch.ops, or -1 for batch-level errors
 
-	OpKind OpKind // Put/Delete, if applicable
+	OpKind kv.OpKind // Put/Delete, if applicable
 
 	// Size context
 	KeyLen   int
@@ -140,7 +142,7 @@ type CommitError struct {
 	TxnID uint64
 
 	OpIndex int // for StageEncodeOp/StageAppendOp, else -1
-	OpKind  OpKind
+	OpKind  kv.OpKind
 
 	// Optional WAL context when an append succeeds partially.
 	SegID  uint64
@@ -178,7 +180,7 @@ func wrapCommitErr(stage CommitStage, sentinel error, txnID uint64, cause error)
 	}
 }
 
-func wrapCommitOpErr(stage CommitStage, sentinel error, txnID uint64, opIndex int, op Op, cause error) error {
+func wrapCommitOpErr(stage CommitStage, sentinel error, txnID uint64, opIndex int, op kv.Op, cause error) error {
 	ce := &CommitError{
 		Err:     sentinel,
 		Stage:   stage,
@@ -190,7 +192,7 @@ func wrapCommitOpErr(stage CommitStage, sentinel error, txnID uint64, opIndex in
 	if op.Key != nil {
 		ce.KeyLen = len(op.Key)
 	}
-	if op.Kind == OpPut && op.Value != nil {
+	if op.Kind == kv.OpPut && op.Value != nil {
 		ce.ValueLen = len(op.Value)
 	}
 	return ce

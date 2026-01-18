@@ -16,12 +16,17 @@ type DB struct {
 	log      *wal.Log
 	txnw     *txn.Writer
 	memtable *memtable.Table
+	opts     waldb.OpenOptions
 	closed   bool
 }
 
 // Open opens or creates a WAL database at the given path.
 // This is a placeholder implementation.
 func Open(path string) (*DB, error) {
+	return OpenWithOptions(path, waldb.OpenOptions{})
+}
+
+func OpenWithOptions(path string, opts waldb.OpenOptions) (*DB, error) {
 	if path == "" {
 		return nil, wrapDBErr("open", ErrInvalidPath, path, nil)
 	}
@@ -29,6 +34,7 @@ func Open(path string) (*DB, error) {
 	db := &DB{
 		path:   path,
 		closed: false,
+		opts:   opts,
 	}
 
 	if err := db.initialize(); err != nil {
@@ -72,12 +78,7 @@ func (db *DB) Commit(b *txn.Batch) (uint64, error) {
 		return 0, wrapDBErr("commit", ErrCommitFailed, db.path, err)
 	}
 
-	memOps, err := b.ToMemtableOps()
-	if err != nil {
-		return txnId, wrapDBErr("commit", ErrCommitFailed, db.path, err)
-	}
-
-	if err := db.memtable.Apply(memOps); err != nil {
+	if err := db.memtable.Apply(b.Ops()); err != nil {
 		return txnId, wrapDBErr("commit", ErrCommitFailed, db.path, err)
 	}
 
@@ -108,7 +109,7 @@ func (db *DB) initialize() error {
 		return wrapDBErr("init", ErrInitFailed, db.path, err)
 	}
 
-	db.txnw = txn.NewWriter(allocator, db.log, txn.WriterOpts{})
+	db.txnw = txn.NewWriter(allocator, db.log, txn.WriterOpts{FsyncOnCommit: db.opts.FsyncOnCommit})
 
 	return nil
 }

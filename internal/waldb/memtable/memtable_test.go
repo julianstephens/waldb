@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 )
 
@@ -282,9 +283,9 @@ func TestSnapshotValueCopy(t *testing.T) {
 // TestApplyPut applies a put operation
 func TestApplyPut(t *testing.T) {
 	tbl := memtable.New()
-	ops := []memtable.Op{
-		{Kind: memtable.OpPut, Key: []byte("key1"), Value: []byte("value1")},
-		{Kind: memtable.OpPut, Key: []byte("key2"), Value: []byte("value2")},
+	ops := []kv.Op{
+		{Kind: kv.OpPut, Key: []byte("key1"), Value: []byte("value1")},
+		{Kind: kv.OpPut, Key: []byte("key2"), Value: []byte("value2")},
 	}
 
 	err := tbl.Apply(ops)
@@ -307,8 +308,8 @@ func TestApplyDelete(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	ops := []memtable.Op{
-		{Kind: memtable.OpDelete, Key: []byte("key")},
+	ops := []kv.Op{
+		{Kind: kv.OpDelete, Key: []byte("key")},
 	}
 
 	err := tbl.Apply(ops)
@@ -329,10 +330,10 @@ func TestApplyMixed(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	ops := []memtable.Op{
-		{Kind: memtable.OpPut, Key: []byte("new"), Value: []byte("newvalue")},
-		{Kind: memtable.OpDelete, Key: []byte("existing")},
-		{Kind: memtable.OpPut, Key: []byte("another"), Value: []byte("another")},
+	ops := []kv.Op{
+		{Kind: kv.OpPut, Key: []byte("new"), Value: []byte("newvalue")},
+		{Kind: kv.OpDelete, Key: []byte("existing")},
+		{Kind: kv.OpPut, Key: []byte("another"), Value: []byte("another")},
 	}
 
 	err := tbl.Apply(ops)
@@ -354,9 +355,9 @@ func TestApplyMixed(t *testing.T) {
 // TestApplyNilKey tests Apply with nil key in batch
 func TestApplyNilKey(t *testing.T) {
 	tbl := memtable.New()
-	ops := []memtable.Op{
-		{Kind: memtable.OpPut, Key: []byte("key1"), Value: []byte("value1")},
-		{Kind: memtable.OpPut, Key: nil, Value: []byte("value2")}, // nil key
+	ops := []kv.Op{
+		{Kind: kv.OpPut, Key: []byte("key1"), Value: []byte("value1")},
+		{Kind: kv.OpPut, Key: nil, Value: []byte("value2")}, // nil key
 	}
 
 	err := tbl.Apply(ops)
@@ -377,8 +378,8 @@ func TestApplyNilKey(t *testing.T) {
 // TestApplyInvalidOpKind tests Apply with invalid operation kind
 func TestApplyInvalidOpKind(t *testing.T) {
 	tbl := memtable.New()
-	ops := []memtable.Op{
-		{Kind: memtable.OpKind(99), Key: []byte("key"), Value: []byte("value")}, // invalid kind
+	ops := []kv.Op{
+		{Kind: kv.OpKind(99), Key: []byte("key"), Value: []byte("value")}, // invalid kind
 	}
 
 	err := tbl.Apply(ops)
@@ -390,7 +391,7 @@ func TestApplyInvalidOpKind(t *testing.T) {
 // TestApplyEmpty applies empty operation list
 func TestApplyEmpty(t *testing.T) {
 	tbl := memtable.New()
-	err := tbl.Apply([]memtable.Op{})
+	err := tbl.Apply([]kv.Op{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -399,10 +400,10 @@ func TestApplyEmpty(t *testing.T) {
 // TestApplyLastWriteWins applies multiple writes to same key
 func TestApplyLastWriteWins(t *testing.T) {
 	tbl := memtable.New()
-	ops := []memtable.Op{
-		{Kind: memtable.OpPut, Key: []byte("key"), Value: []byte("value1")},
-		{Kind: memtable.OpPut, Key: []byte("key"), Value: []byte("value2")},
-		{Kind: memtable.OpPut, Key: []byte("key"), Value: []byte("value3")},
+	ops := []kv.Op{
+		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value1")},
+		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value2")},
+		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value3")},
 	}
 
 	err := tbl.Apply(ops)
@@ -419,9 +420,9 @@ func TestApplyLastWriteWins(t *testing.T) {
 // TestApplyPutThenDelete applies put then delete to same key
 func TestApplyPutThenDelete(t *testing.T) {
 	tbl := memtable.New()
-	ops := []memtable.Op{
-		{Kind: memtable.OpPut, Key: []byte("key"), Value: []byte("value")},
-		{Kind: memtable.OpDelete, Key: []byte("key")},
+	ops := []kv.Op{
+		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value")},
+		{Kind: kv.OpDelete, Key: []byte("key")},
 	}
 
 	err := tbl.Apply(ops)
@@ -442,9 +443,9 @@ func TestApplyDeleteThenPut(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	ops := []memtable.Op{
-		{Kind: memtable.OpDelete, Key: []byte("key")},
-		{Kind: memtable.OpPut, Key: []byte("key"), Value: []byte("new")},
+	ops := []kv.Op{
+		{Kind: kv.OpDelete, Key: []byte("key")},
+		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("new")},
 	}
 
 	err := tbl.Apply(ops)
@@ -553,13 +554,13 @@ func TestTombstoneEntry(t *testing.T) {
 
 // TestOpPutStruct tests Op struct for put operation
 func TestOpPutStruct(t *testing.T) {
-	op := memtable.Op{
-		Kind:  memtable.OpPut,
+	op := kv.Op{
+		Kind:  kv.OpPut,
 		Key:   []byte("key"),
 		Value: []byte("value"),
 	}
 
-	if op.Kind != memtable.OpPut {
+	if op.Kind != kv.OpPut {
 		t.Errorf("expected OpPut, got %v", op.Kind)
 	}
 	if !bytes.Equal(op.Key, []byte("key")) {
@@ -572,12 +573,12 @@ func TestOpPutStruct(t *testing.T) {
 
 // TestOpDeleteStruct tests Op struct for delete operation
 func TestOpDeleteStruct(t *testing.T) {
-	op := memtable.Op{
-		Kind: memtable.OpDelete,
+	op := kv.Op{
+		Kind: kv.OpDelete,
 		Key:  []byte("key"),
 	}
 
-	if op.Kind != memtable.OpDelete {
+	if op.Kind != kv.OpDelete {
 		t.Errorf("expected OpDelete, got %v", op.Kind)
 	}
 	if !bytes.Equal(op.Key, []byte("key")) {
@@ -668,10 +669,10 @@ func TestUnicodeData(t *testing.T) {
 func TestApplyAtomicity(t *testing.T) {
 	tbl := memtable.New()
 
-	ops := []memtable.Op{
-		{Kind: memtable.OpPut, Key: []byte("key1"), Value: []byte("value1")},
-		{Kind: memtable.OpPut, Key: nil, Value: []byte("value2")}, // This will fail
-		{Kind: memtable.OpPut, Key: []byte("key3"), Value: []byte("value3")},
+	ops := []kv.Op{
+		{Kind: kv.OpPut, Key: []byte("key1"), Value: []byte("value1")},
+		{Kind: kv.OpPut, Key: nil, Value: []byte("value2")}, // This will fail
+		{Kind: kv.OpPut, Key: []byte("key3"), Value: []byte("value3")},
 	}
 
 	err := tbl.Apply(ops)

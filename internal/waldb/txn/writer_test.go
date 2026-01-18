@@ -291,3 +291,80 @@ func TestFailOnFSync(t *testing.T) {
 
 	_ = txnID
 }
+
+// TestInvalidBatchValidationBeforeWALWrite verifies that batch validation happens
+// before any WAL writes, preventing orphan records on invalid input.
+func TestInvalidBatchValidationBeforeWALWrite(t *testing.T) {
+	allocator := testutil.NewIDAllocator(700)
+	appender := testutil.NewLogAppender()
+	opts := txn.WriterOpts{FsyncOnCommit: true}
+
+	writer := txn.NewWriter(allocator, appender, opts)
+
+	// Create a batch with an invalid operation (empty key)
+	batch := txn.NewBatch()
+	batch.Put([]byte(""), []byte("value")) // Invalid: empty key
+
+	txnID, err := writer.Commit(batch)
+	if err == nil {
+		t.Fatal("expected error when committing invalid batch")
+	}
+
+	// Verify that NO WAL records were written (no Append, Flush, or FSync calls)
+	if len(appender.Calls()) != 0 {
+		t.Errorf("expected 0 calls (validation should happen before WAL write), got %d calls", len(appender.Calls()))
+		for _, call := range appender.Calls() {
+			t.Logf("  - %s(%v)", call.Method, call.RecordType)
+		}
+	}
+
+	_ = txnID
+}
+
+// TestAppendOrderingBeginOpsCommit verifies the exact record sequence:
+// BEGIN(txn_id) → PUT/DEL operations in batch order → COMMIT(txn_id)
+func TestAppendOrderingBeginOpsCommit(t *testing.T) {
+	allocator := testutil.NewIDAllocator(800)
+	appender := testutil.NewLogAppender()
+	opts := txn.WriterOpts{FsyncOnCommit: false}
+
+	writer := txn.NewWriter(allocator, appender, opts)
+
+	batch := txn.NewBatch()
+	batch.Put([]byte("key1"), []byte("value1"))
+	batch.Delete([]byte("key2"))
+	batch.Put([]byte("key3"), []byte("value3"))
+	batch.Delete([]byte("key4"))
+
+	_, err := writer.Commit(batch)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify exact ordering: BEGIN → PUT → DELETE → PUT → DELETE → COMMIT → Flush
+	expectedOrdering := []record.RecordType{
+		record.RecordTypeBeginTransaction,
+		record.RecordTypePutOperation,
+		record.RecordTypeDeleteOperation,
+		record.RecordTypePutOperation,
+		record.RecordTypeDeleteOperation,
+		record.RecordTypeCommitTransaction,
+	}
+
+	appendCalls := []testutil.RecordedCall{}
+	for _, call := range appender.Calls() {
+		if call.Method == "Append" {
+			appendCalls = append(appendCalls, call)
+		}
+	}
+
+	if len(appendCalls) != len(expectedOrdering) {
+		t.Errorf("expected %d appends, got %d", len(expectedOrdering), len(appendCalls))
+	}
+
+	for i, expected := range expectedOrdering {
+		if i < len(appendCalls) && appendCalls[i].RecordType != expected {
+			t.Errorf("append %d: expected type %v, got %v", i, expected, appendCalls[i].RecordType)
+		}
+	}
+}

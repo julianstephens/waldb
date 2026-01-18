@@ -3,6 +3,7 @@ package txn_test
 import (
 	"testing"
 
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
@@ -33,7 +34,7 @@ func TestBatchPut(t *testing.T) {
 		t.Fatalf("expected 1 operation, got %d", len(ops))
 	}
 
-	if ops[0].Kind != txn.OpPut {
+	if ops[0].Kind != kv.OpPut {
 		t.Errorf("expected OpPut, got %v", ops[0].Kind)
 	}
 	if string(ops[0].Key) != string(key) {
@@ -56,7 +57,7 @@ func TestBatchDelete(t *testing.T) {
 		t.Fatalf("expected 1 operation, got %d", len(ops))
 	}
 
-	if ops[0].Kind != txn.OpDelete {
+	if ops[0].Kind != kv.OpDelete {
 		t.Errorf("expected OpDelete, got %v", ops[0].Kind)
 	}
 	if string(ops[0].Key) != string(key) {
@@ -77,13 +78,13 @@ func TestBatchMultipleOperations(t *testing.T) {
 		t.Fatalf("expected 3 operations, got %d", len(ops))
 	}
 
-	if ops[0].Kind != txn.OpPut {
+	if ops[0].Kind != kv.OpPut {
 		t.Errorf("op 0: expected OpPut, got %v", ops[0].Kind)
 	}
-	if ops[1].Kind != txn.OpDelete {
+	if ops[1].Kind != kv.OpDelete {
 		t.Errorf("op 1: expected OpDelete, got %v", ops[1].Kind)
 	}
-	if ops[2].Kind != txn.OpPut {
+	if ops[2].Kind != kv.OpPut {
 		t.Errorf("op 2: expected OpPut, got %v", ops[2].Kind)
 	}
 }
@@ -178,7 +179,7 @@ func TestValidateNilKey(t *testing.T) {
 	if validErr.OpIndex != 0 {
 		t.Errorf("expected OpIndex 0, got %d", validErr.OpIndex)
 	}
-	if validErr.OpKind != txn.OpPut {
+	if validErr.OpKind != kv.OpPut {
 		t.Errorf("expected OpPut, got %v", validErr.OpKind)
 	}
 }
@@ -276,7 +277,7 @@ func TestValidateDeleteWithOversizeKey(t *testing.T) {
 	if validErr.Err != txn.ErrKeyTooLarge {
 		t.Errorf("expected ErrKeyTooLarge, got %v", validErr.Err)
 	}
-	if validErr.OpKind != txn.OpDelete {
+	if validErr.OpKind != kv.OpDelete {
 		t.Errorf("expected OpDelete, got %v", validErr.OpKind)
 	}
 }

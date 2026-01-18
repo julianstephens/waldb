@@ -3,26 +3,13 @@ package memtable
 import (
 	"errors"
 	"sync"
+
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 )
 
 var (
 	ErrNilKey = errors.New("memtable: nil key")
 )
-
-// OpKind describes a memtable operation.
-type OpKind uint8
-
-const (
-	OpPut OpKind = iota
-	OpDelete
-)
-
-// Op is a single memtable mutation.
-type Op struct {
-	Kind  OpKind
-	Key   []byte
-	Value []byte // for OpPut
-}
 
 // Entry represents a stored value or a tombstone.
 type Entry struct {
@@ -90,7 +77,7 @@ func (t *Table) Delete(key []byte) error {
 }
 
 // Apply atomically applies a batch of operations. Either all ops are applied or none.
-func (t *Table) Apply(ops []Op) error {
+func (t *Table) Apply(ops []kv.Op) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -99,11 +86,11 @@ func (t *Table) Apply(ops []Op) error {
 			return ErrNilKey
 		}
 		switch op.Kind {
-		case OpPut:
+		case kv.OpPut:
 			v := make([]byte, len(op.Value))
 			copy(v, op.Value)
 			t.m[string(op.Key)] = Entry{Value: v, Tombstone: false}
-		case OpDelete:
+		case kv.OpDelete:
 			t.m[string(op.Key)] = Entry{Value: nil, Tombstone: true}
 		default:
 			return errors.New("memtable: invalid op kind")

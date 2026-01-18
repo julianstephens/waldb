@@ -1,28 +1,28 @@
 package txn
 
 import (
-	"github.com/julianstephens/waldb/internal/waldb/memtable"
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
 // Batch represents a collection of operations
 // that can be applied as a single transaction.
 type Batch struct {
-	ops []Op
+	ops []kv.Op
 }
 
 // NewBatch creates and returns a new empty Batch.
 func NewBatch() *Batch {
 	return &Batch{
-		ops: make([]Op, 0),
+		ops: make([]kv.Op, 0),
 	}
 }
 
 // Put adds a put operation to the batch.
 // The key and value are provided as byte slices.
 func (b *Batch) Put(key, value []byte) {
-	b.ops = append(b.ops, Op{
-		Kind:  OpPut,
+	b.ops = append(b.ops, kv.Op{
+		Kind:  kv.OpPut,
 		Key:   key,
 		Value: value,
 	})
@@ -31,39 +31,17 @@ func (b *Batch) Put(key, value []byte) {
 // Delete adds a delete operation to the batch.
 // The key to be deleted is provided as a byte slice.
 func (b *Batch) Delete(key []byte) {
-	b.ops = append(b.ops, Op{
-		Kind: OpDelete,
+	b.ops = append(b.ops, kv.Op{
+		Kind: kv.OpDelete,
 		Key:  key,
 	})
 }
 
 // Ops returns the list of operations accumulated in the batch.
-func (b *Batch) Ops() []Op {
-	opsCopy := make([]Op, len(b.ops))
+func (b *Batch) Ops() []kv.Op {
+	opsCopy := make([]kv.Op, len(b.ops))
 	copy(opsCopy, b.ops)
 	return opsCopy
-}
-
-// ToMemtableOps converts the batch operations into memtable operations.
-func (b *Batch) ToMemtableOps() ([]memtable.Op, error) {
-	memOps := make([]memtable.Op, len(b.ops))
-	for i, op := range b.ops {
-		var memOpKind memtable.OpKind
-		switch op.Kind {
-		case OpPut:
-			memOpKind = memtable.OpPut
-		case OpDelete:
-			memOpKind = memtable.OpDelete
-		default:
-			return nil, ErrTxnInvalidOpKind
-		}
-		memOps[i] = memtable.Op{
-			Kind:  memOpKind,
-			Key:   op.Key,
-			Value: op.Value,
-		}
-	}
-	return memOps, nil
 }
 
 // Validate checks the batch for common errors.
@@ -77,7 +55,7 @@ func (b *Batch) Validate() error {
 	}
 
 	for i, op := range b.ops {
-		if (op.Kind != OpPut) && (op.Kind != OpDelete) {
+		if (op.Kind != kv.OpPut) && (op.Kind != kv.OpDelete) {
 			return &BatchValidationError{
 				Err:     ErrInvalidOp,
 				OpIndex: i,
@@ -99,7 +77,7 @@ func (b *Batch) Validate() error {
 				KeyLen:  len(op.Key),
 			}
 		}
-		if (op.Kind == OpPut) && (len(op.Value) > record.MaxValueSize) {
+		if (op.Kind == kv.OpPut) && (len(op.Value) > record.MaxValueSize) {
 			return &BatchValidationError{
 				Err:      ErrValueTooLarge,
 				OpIndex:  i,

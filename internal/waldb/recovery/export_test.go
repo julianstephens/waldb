@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
@@ -10,7 +11,7 @@ import (
 // TxnBuf wraps the internal txnBuf type with exported fields
 type TxnBuf struct {
 	ID  uint64
-	Ops []Op
+	Ops []kv.Op
 }
 
 // Op wraps the internal op type with exported fields
@@ -87,17 +88,9 @@ func (s *ReplayState) OnCommit(payload record.BeginCommitTransactionPayload, ctx
 func (s *ReplayState) Inflight() map[uint64]*TxnBuf {
 	result := make(map[uint64]*TxnBuf)
 	for txnID, internalBuf := range s.inflight {
-		exportedOps := make([]Op, len(internalBuf.ops))
-		for i, internalOp := range internalBuf.ops {
-			exportedOps[i] = Op{
-				Kind:  internalOp.kind,
-				Key:   append([]byte(nil), internalOp.key...),
-				Value: append([]byte(nil), internalOp.value...),
-			}
-		}
 		result[txnID] = &TxnBuf{
 			ID:  internalBuf.id,
-			Ops: exportedOps,
+			Ops: internalBuf.ops,
 		}
 	}
 	return result
