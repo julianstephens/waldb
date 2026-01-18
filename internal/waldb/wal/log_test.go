@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
+	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb/wal"
 )
 
@@ -14,7 +15,7 @@ func TestOpenLogCreatesDirectory(t *testing.T) {
 	tempDir := t.TempDir()
 	walDir := filepath.Join(tempDir, "new_wal_dir")
 
-	provider, err := wal.OpenLog(walDir, wal.LogOpts{})
+	provider, err := wal.OpenLog(walDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	tst.AssertNotNil(t, provider, "expected non-nil provider")
 
@@ -27,7 +28,7 @@ func TestOpenLogCreatesDirectory(t *testing.T) {
 func TestOpenLogCreatesFirstSegment(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Should have exactly one segment
@@ -41,11 +42,11 @@ func TestOpenLogDiscoverExistingSegments(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create first provider
-	_, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	_, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Open again and verify segments are discovered
-	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	segIds := provider2.SegmentIDs()
@@ -57,7 +58,7 @@ func TestOpenLogDiscoverExistingSegments(t *testing.T) {
 func TestSegmentIDs(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	segIds := provider.SegmentIDs()
@@ -69,7 +70,7 @@ func TestSegmentIDs(t *testing.T) {
 func TestOpenSegmentExistingSegment(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Open the existing segment 1
@@ -85,7 +86,7 @@ func TestOpenSegmentExistingSegment(t *testing.T) {
 func TestOpenSegmentNonExistent(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Try to open non-existent segment
@@ -98,7 +99,7 @@ func TestOpenLogInvalidPath(t *testing.T) {
 	// Try to open with a path that has a non-existent parent
 	invalidPath := "/nonexistent/path/to/wal/that/cannot/be/created/waldb"
 
-	_, err := wal.OpenLog(invalidPath, wal.LogOpts{})
+	_, err := wal.OpenLog(invalidPath, wal.LogOpts{}, logger.NoOpLogger{})
 	if err == nil {
 		t.Fatal("expected error opening log with invalid path")
 	}
@@ -109,14 +110,14 @@ func TestMultipleOpenLogInstances(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Open first log
-	provider1, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider1, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	segIds1 := provider1.SegmentIDs()
 	tst.RequireDeepEqual(t, len(segIds1), 1)
 
 	// Open second log on same directory
-	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	segIds2 := provider2.SegmentIDs()
@@ -130,7 +131,7 @@ func TestMultipleOpenLogInstances(t *testing.T) {
 func TestSegmentReaderSeekTo(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	reader, err := provider.OpenSegment(1)
@@ -146,14 +147,14 @@ func TestSegmentProviderPersists(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Open first provider
-	provider1, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider1, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	segIds1 := provider1.SegmentIDs()
 	initialSegId := segIds1[0]
 
 	// Open second provider on same directory
-	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{})
+	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	segIds2 := provider2.SegmentIDs()

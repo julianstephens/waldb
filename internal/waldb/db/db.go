@@ -2,7 +2,10 @@ package db
 
 import (
 	"errors"
+	"fmt"
+	"os"
 
+	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/recovery"
@@ -17,22 +20,29 @@ type DB struct {
 	txnw     *txn.Writer
 	memtable *memtable.Table
 	opts     waldb.OpenOptions
+	logger   logger.Logger
 	closed   bool
 }
 
 // Open opens or creates a WAL database at the given path.
 // This is a placeholder implementation.
 func Open(path string) (*DB, error) {
-	return OpenWithOptions(path, waldb.OpenOptions{})
+	return OpenWithOptions(path, waldb.OpenOptions{}, logger.NoOpLogger{})
 }
 
-func OpenWithOptions(path string, opts waldb.OpenOptions) (*DB, error) {
+func OpenWithOptions(path string, opts waldb.OpenOptions, lg logger.Logger) (*DB, error) {
 	if path == "" {
 		return nil, wrapDBErr("open", ErrInvalidPath, path, nil)
 	}
 
+	// Initialize logger if not provided
+	if lg == nil {
+		lg = createLogger(opts)
+	}
+
 	db := &DB{
 		path:   path,
+		logger: lg,
 		closed: false,
 		opts:   opts,
 	}
@@ -51,6 +61,11 @@ func (db *DB) Close() error {
 	}
 	if err := db.log.Close(); err != nil {
 		return wrapDBErr("close", ErrCloseFailed, db.path, err)
+	}
+
+	// Close the logger if it supports closing
+	if c, ok := db.logger.(logger.Closeable); ok {
+		_ = c.Close() // Log close errors but don't fail DB close
 	}
 
 	db.closed = true
@@ -92,7 +107,7 @@ func (db *DB) Get(key []byte) ([]byte, bool) {
 }
 
 func (db *DB) initialize() error {
-	log, err := wal.OpenLog(db.path, wal.LogOpts{SegmentMaxBytes: waldb.DefaultSegmentMaxBytes})
+	log, err := wal.OpenLog(db.path, wal.LogOpts{SegmentMaxBytes: waldb.DefaultSegmentMaxBytes}, db.logger)
 	if err != nil {
 		return wrapDBErr("open", ErrWALOpenFailed, db.path, err)
 	}
@@ -105,7 +120,7 @@ func (db *DB) initialize() error {
 		start.SegId = segIds[0]
 	}
 
-	res, err := recovery.Replay(db.log, start, db.memtable)
+	res, err := recovery.Replay(db.log, start, db.memtable, db.logger)
 	if err != nil {
 		return wrapDBErr("replay", ErrReplayFailed, db.path, err)
 	}
@@ -115,7 +130,37 @@ func (db *DB) initialize() error {
 		return wrapDBErr("init", ErrInitFailed, db.path, err)
 	}
 
-	db.txnw = txn.NewWriter(allocator, db.log, txn.WriterOpts{FsyncOnCommit: db.opts.FsyncOnCommit})
+	db.txnw = txn.NewWriter(allocator, db.log, txn.WriterOpts{FsyncOnCommit: db.opts.FsyncOnCommit}, db.logger)
 
 	return nil
+}
+
+// createLogger builds a logger from options.
+// Currently only creates a file logger based on LogDir configuration.
+// Console logging and log level will be managed by the CLI layer.
+// Returns NoOpLogger if no logging is configured.
+func createLogger(opts waldb.OpenOptions) logger.Logger {
+	// Only file logging is supported at the DB level for manifest fields
+	if opts.LogDir != "" {
+		maxSize := opts.LogMaxSize
+		if maxSize <= 0 {
+			maxSize = waldb.DefaultLogMaxSize
+		}
+
+		maxBak := opts.LogMaxBak
+		if maxBak < 0 {
+			maxBak = waldb.DefaultLogMaxBackups
+		}
+
+		fl, err := logger.NewFileLogger(opts.LogDir, waldb.DefaultLogFileName, maxSize, maxBak)
+		if err != nil {
+			// Log warning to stderr but don't fail DB open
+			fmt.Fprintf(os.Stderr, "warning: failed to initialize file logger: %v\n", err)
+		} else {
+			return fl
+		}
+	}
+
+	// No logging configured
+	return logger.NoOpLogger{}
 }

@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/julianstephens/waldb/internal/logger"
+
 	tst "github.com/julianstephens/go-utils/tests"
 	waldbcore "github.com/julianstephens/waldb/internal/waldb"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
@@ -15,7 +17,7 @@ import (
 func TestInvalidBatchDoesNotWriteWAL(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -33,7 +35,7 @@ func TestInvalidBatchDoesNotWriteWAL(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -55,7 +57,7 @@ func TestInvalidBatchDoesNotWriteWAL(t *testing.T) {
 func TestWALErrorPreventsMemtableApply(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -79,7 +81,7 @@ func TestWALErrorPreventsMemtableApply(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -102,7 +104,7 @@ func TestFsyncOnCommitWiring(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
 	// Open DB with fsync enabled
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -122,7 +124,7 @@ func TestFsyncOnCommitWiring(t *testing.T) {
 func TestBatchCommitSequence(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -142,7 +144,7 @@ func TestBatchCommitSequence(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -167,7 +169,7 @@ func TestBatchCommitSequence(t *testing.T) {
 func TestMultipleBatchesCommitSequence(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -199,7 +201,7 @@ func TestMultipleBatchesCommitSequence(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()

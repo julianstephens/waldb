@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
+	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/testutil"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/recovery"
@@ -18,7 +19,7 @@ func TestReplayEmptyProvider(t *testing.T) {
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
 
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 	// Empty provider means no segments, so we expect an error
 	tst.AssertTrue(t, err != nil, "expected error with empty provider")
 	tst.AssertTrue(t, result == nil, "expected nil result")
@@ -34,7 +35,7 @@ func TestReplaySegmentNotFound(t *testing.T) {
 	// Start at segment 999 which doesn't exist
 	start := wal.Boundary{SegId: 999, Offset: 0}
 
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 	tst.AssertTrue(t, err != nil, "expected error when segment not found")
 	tst.AssertTrue(t, result == nil, "expected nil result")
 }
@@ -48,7 +49,7 @@ func TestReplayOpenSegmentError(t *testing.T) {
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
 
-	_, err := recovery.Replay(provider, start, mem)
+	_, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 	tst.AssertTrue(t, err != nil, "expected error when opening segment fails")
 }
 
@@ -71,7 +72,7 @@ func TestReplaySingleBeginCommit(t *testing.T) {
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	tst.RequireNoError(t, err)
 	tst.AssertTrue(t, result != nil, "expected non-nil result")
@@ -103,7 +104,7 @@ func TestReplaySinglePutOperation(t *testing.T) {
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	tst.RequireNoError(t, err)
 	tst.AssertTrue(t, result != nil, "expected non-nil result")
@@ -145,7 +146,7 @@ func TestReplayMultiplePutOperations(t *testing.T) {
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	tst.RequireNoError(t, err)
 	tst.AssertTrue(t, result != nil, "expected non-nil result")
@@ -185,7 +186,7 @@ func TestReplayDeleteOperation(t *testing.T) {
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	tst.RequireNoError(t, err)
 	tst.AssertTrue(t, result != nil, "expected non-nil result")
@@ -235,7 +236,7 @@ func TestReplayMultipleSegments(t *testing.T) {
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	tst.RequireNoError(t, err)
 	tst.AssertTrue(t, result != nil, "expected non-nil result")
@@ -296,7 +297,7 @@ func TestReplayStartOffset(t *testing.T) {
 	mem := memtable.New()
 	// Start at the second transaction
 	start := wal.Boundary{SegId: 1, Offset: offset}
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	tst.RequireNoError(t, err)
 	tst.AssertTrue(t, result != nil, "expected non-nil result")
@@ -318,7 +319,7 @@ func TestReplayInvalidRecordData(t *testing.T) {
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	_, err := recovery.Replay(provider, start, mem)
+	_, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	// Should error on invalid record
 	tst.AssertTrue(t, err != nil, "expected error on invalid record")
@@ -352,7 +353,7 @@ func TestReplayLargeValue(t *testing.T) {
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	tst.RequireNoError(t, err)
 	tst.AssertTrue(t, result != nil, "expected non-nil result")
@@ -394,7 +395,7 @@ func TestReplayMultipleTransactions(t *testing.T) {
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	result, err := recovery.Replay(provider, start, mem)
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
 	tst.RequireNoError(t, err)
 	tst.AssertTrue(t, result != nil, "expected non-nil result")

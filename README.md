@@ -1,6 +1,6 @@
 # waldb
 
-A Write-Ahead Log (WAL) based key-value database written in Go.
+A Write-Ahead Log (WAL) based key-value database written in Go. It provides durability and atomicity for key-value operations using a simple and efficient design.
 
 ## Features
 
@@ -64,7 +64,7 @@ waldb <command> --help
 
 ### Prerequisites
 
-- Go 1.23 or later
+- Go 1.25 or later
 - golangci-lint (for linting)
 
 ### Building
@@ -79,6 +79,18 @@ Run all tests:
 
 ```bash
 go test ./...
+```
+
+Run unit tests:
+
+```bash
+go test ./internal/waldb/... ./cmd/...
+```
+
+Run E2E tests:
+
+```bash
+go test ./internal/tests/e2e/...
 ```
 
 Run tests with race detection:
@@ -99,13 +111,7 @@ go tool cover -html=coverage.out
 Format code:
 
 ```bash
-gofmt -w .
-```
-
-Run go vet:
-
-```bash
-go vet ./...
+golangci-lint fmt
 ```
 
 Run golangci-lint:
@@ -134,9 +140,10 @@ waldb/
 │   └── waldb/          # Main CLI application
 ├── internal/
 │   ├── waldb/          # Core database implementation
-│   └── cli/            # Command handlers
+│   ├── cli/            # Command handlers
+│   ├── testutil/       # Test helpers and mocks
+│   └── tests/e2e/      # End-To-End tests
 ├── docs/               # Documentation
-├── scripts/            # Build and utility scripts
 ├── .github/
 │   └── workflows/      # CI/CD workflows
 ├── go.mod
@@ -145,43 +152,6 @@ waldb/
 ├── LICENSE
 └── README.md
 ```
-
-## CI/CD
-
-### Pull Request Workflow
-
-Every pull request triggers:
-
-- Code formatting checks (`gofmt`)
-- Static analysis (`go vet`, `golangci-lint`)
-- Unit tests with race detection
-- Code coverage reporting
-
-See `.github/workflows/pr.yml` for details.
-
-### Release Workflow
-
-Releases are automated via Git tags:
-
-1. Create and push a semantic version tag:
-
-   ```bash
-   git tag -a v0.1.0 -m "Release v0.1.0"
-   git push origin v0.1.0
-   ```
-
-2. GitHub Actions will automatically:
-   - Build binaries for multiple platforms (Linux, macOS, Windows)
-   - Create a GitHub release
-   - Upload build artifacts
-
-Supported platforms:
-
-- Linux (amd64, arm64)
-- macOS (amd64, arm64)
-- Windows (amd64)
-
-See `.github/workflows/release.yml` for details.
 
 ## License
 

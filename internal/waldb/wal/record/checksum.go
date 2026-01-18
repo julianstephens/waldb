@@ -1,12 +1,10 @@
 package record
 
-import "hash/crc32"
+import "github.com/julianstephens/go-utils/checksum"
 
-var castagnoliTable = crc32.MakeTable(crc32.Castagnoli)
-
-// ComputeChecksum computes the CRC32 checksum with the Castagnoli polynomial for the given data.
+// ComputeChecksum computes the CRC32-C checksum with the Castagnoli polynomial for the given data.
 func ComputeChecksum(data []byte) uint32 {
-	return crc32.Checksum(data, castagnoliTable)
+	return checksum.CRC32C(data)
 }
 
 // VerifyChecksum verifies the checksum of the given record.
@@ -21,8 +19,7 @@ func VerifyChecksum(record *Record) bool {
 	data[0] = byte(record.Type)
 	copy(data[1:], record.Payload)
 
-	calculatedCRC := ComputeChecksum(data)
-	return calculatedCRC == record.CRC
+	return checksum.VerifyCRC32C(data, record.CRC)
 }
 
 // UpdateChecksum updates the checksum of the given record.

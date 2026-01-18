@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/julianstephens/waldb/internal/logger"
+
 	tst "github.com/julianstephens/go-utils/tests"
 	waldbcore "github.com/julianstephens/waldb/internal/waldb"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
@@ -20,7 +22,7 @@ func TestIncompleteTransactionDoesNotAdvanceNextTxnId(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
 	// Phase 1: Open DB and commit one transaction successfully
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	batch1 := txn.NewBatch()
@@ -34,7 +36,7 @@ func TestIncompleteTransactionDoesNotAdvanceNextTxnId(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Phase 2: Reopen DB and verify recovery seeded next_txn_id to 2
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -66,7 +68,7 @@ func TestRecoveryIgnoresUncommittedWALRecords(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
 	// Phase 1: Create a sequence of transactions
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Commit batch A
@@ -88,7 +90,7 @@ func TestRecoveryIgnoresUncommittedWALRecords(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Phase 2: Reopen and verify recovery state
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -113,7 +115,7 @@ func TestRecoveryIgnoresUncommittedWALRecords(t *testing.T) {
 func TestNextTxnIdSeedsFromLastDurableCommit(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Commit 5 transactions
@@ -130,7 +132,7 @@ func TestNextTxnIdSeedsFromLastDurableCommit(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Reopen and verify recovery seeded to 6
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()

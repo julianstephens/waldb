@@ -3,6 +3,7 @@ package txn_test
 import (
 	"testing"
 
+	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/testutil"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
@@ -14,7 +15,7 @@ func TestHappyPathWithFSync(t *testing.T) {
 	appender := testutil.NewLogAppender()
 	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, appender, opts)
+	writer := txn.NewWriter(allocator, appender, opts, logger.NoOpLogger{})
 
 	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))
@@ -64,7 +65,7 @@ func TestHappyPathWithoutFSync(t *testing.T) {
 	appender := testutil.NewLogAppender()
 	opts := txn.WriterOpts{FsyncOnCommit: false}
 
-	writer := txn.NewWriter(allocator, appender, opts)
+	writer := txn.NewWriter(allocator, appender, opts, logger.NoOpLogger{})
 
 	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))
@@ -106,7 +107,7 @@ func TestFailOnOpAppend(t *testing.T) {
 	appender.SetFailOnAppend(1) // Fail on second append (first operation)
 	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, appender, opts)
+	writer := txn.NewWriter(allocator, appender, opts, logger.NoOpLogger{})
 
 	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))
@@ -143,7 +144,7 @@ func TestFailOnCommitAppend(t *testing.T) {
 	appender.SetFailOnAppend(4) // Fail on fifth append (COMMIT after BEGIN + 3 ops)
 	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, appender, opts)
+	writer := txn.NewWriter(allocator, appender, opts, logger.NoOpLogger{})
 
 	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))
@@ -195,7 +196,7 @@ func TestFailOnFlush(t *testing.T) {
 	appender.SetFailOnFlush(true)
 	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, appender, opts)
+	writer := txn.NewWriter(allocator, appender, opts, logger.NoOpLogger{})
 
 	batch := txn.NewBatch()
 	batch.Put([]byte("key"), []byte("value"))
@@ -246,7 +247,7 @@ func TestFailOnFSync(t *testing.T) {
 	appender.SetFailOnFSync(true)
 	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, appender, opts)
+	writer := txn.NewWriter(allocator, appender, opts, logger.NoOpLogger{})
 
 	batch := txn.NewBatch()
 	batch.Put([]byte("key"), []byte("value"))
@@ -299,7 +300,7 @@ func TestInvalidBatchValidationBeforeWALWrite(t *testing.T) {
 	appender := testutil.NewLogAppender()
 	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, appender, opts)
+	writer := txn.NewWriter(allocator, appender, opts, logger.NoOpLogger{})
 
 	// Create a batch with an invalid operation (empty key)
 	batch := txn.NewBatch()
@@ -328,7 +329,7 @@ func TestAppendOrderingBeginOpsCommit(t *testing.T) {
 	appender := testutil.NewLogAppender()
 	opts := txn.WriterOpts{FsyncOnCommit: false}
 
-	writer := txn.NewWriter(allocator, appender, opts)
+	writer := txn.NewWriter(allocator, appender, opts, logger.NoOpLogger{})
 
 	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))

@@ -7,6 +7,7 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/julianstephens/waldb/internal/cli"
+	"github.com/julianstephens/waldb/internal/logger"
 )
 
 var (
@@ -27,7 +28,8 @@ type CLI struct {
 	Doctor   cli.DoctorCmd   `cmd:"" help:"Check database health and integrity"`
 	Repair   cli.RepairCmd   `cmd:"" help:"Repair a corrupted database"`
 
-	Version VersionFlag `name:"version" help:"Show version information" short:"v"`
+	Logger  logger.Logger `kong:"-"` // Internal logger, not exposed as CLI flag
+	Version VersionFlag   `         name:"version" help:"Show version information" short:"v"`
 }
 
 // VersionFlag is a custom flag for displaying version information.
@@ -40,7 +42,9 @@ func (v VersionFlag) BeforeApply(ctx *kong.Context) error {
 }
 
 func main() {
-	cliApp := &CLI{}
+	cliApp := &CLI{
+		Logger: logger.NoOpLogger{}, // Default to no-op logger
+	}
 	ctx := kong.Parse(cliApp,
 		kong.Name("waldb"),
 		kong.Description("A Write-Ahead Log database"),

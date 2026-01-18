@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/julianstephens/go-utils/helpers"
+	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
@@ -19,8 +20,9 @@ type LogOpts struct {
 type Log struct {
 	mu sync.Mutex
 
-	dir  string
-	opts LogOpts
+	dir    string
+	opts   LogOpts
+	logger logger.Logger
 
 	// segments is always kept sorted for binary search
 	segments    []uint64 // sorted ascending; includes activeSegId
@@ -70,11 +72,16 @@ func listSegments(dir string) ([]uint64, error) {
 
 // OpenLog opens or creates the WAL directory, discovers existing segments,
 // selects the active segment, and prepares it for append.
-func OpenLog(dir string, opts LogOpts) (*Log, error) {
+func OpenLog(dir string, opts LogOpts, lg logger.Logger) (*Log, error) {
+	if lg == nil {
+		lg = logger.NoOpLogger{}
+	}
+
 	mgr := &Log{
 		mu:     sync.Mutex{},
 		dir:    dir,
 		opts:   opts,
+		logger: lg,
 		closed: false,
 	}
 

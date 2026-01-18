@@ -10,7 +10,7 @@ DATE?=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
 
 # Default target
-all: build
+all: check
 
 ## build: Build the binary
 build:

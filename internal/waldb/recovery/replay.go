@@ -3,20 +3,45 @@ package recovery
 import (
 	"io"
 
+	"github.com/julianstephens/go-utils/validator"
+	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb/errorutil"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/wal"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
+type TailStatus int
+
+const (
+	TailStatusValid TailStatus = iota
+	TailStatusCorrupt
+	TailStatusMissing
+)
+
+func (ts TailStatus) String() string {
+	switch ts {
+	case TailStatusValid:
+		return "valid"
+	case TailStatusCorrupt:
+		return "corrupt"
+	case TailStatusMissing:
+		return "missing"
+	default:
+		return "unknown"
+	}
+}
+
 type ReplayResult struct {
-	NextTxnId uint64
-	LastValid wal.Boundary
+	NextTxnId          uint64
+	LastCommittedTxnId uint64
+	LastValid          wal.Boundary
+	TailStatus         TailStatus
 }
 
 // Replay replays WAL segments from the given starting boundary into the provided memtable.
 // It returns a ReplayResult indicating the next transaction ID and last valid boundary.
-func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table) (*ReplayResult, error) {
+func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg logger.Logger) (*ReplayResult, error) {
 	state := newReplayState(mem)
 	truncateTo := start
 
@@ -223,4 +248,22 @@ func replayOne(rec record.FramedRecord, segId uint64, state *replayState) error 
 			Err:         record.ErrInvalidType,
 		}
 	}
+}
+
+// validateSegments checks that the given segment IDs are well-ordered, consecutive, and non-empty.
+func validateSegments(ids []uint64) error {
+	v := validator.Numbers[uint64]()
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	for i := 1; i < len(ids); i++ {
+		if err := v.ValidateNonZero(ids[i]); err != nil {
+			return err
+		}
+
+	}
+
+	return nil
 }

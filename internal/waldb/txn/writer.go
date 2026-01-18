@@ -1,6 +1,7 @@
 package txn
 
 import (
+	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/wal"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
@@ -13,14 +14,19 @@ type WriterOpts struct {
 type Writer struct {
 	idAllocator IDAllocator
 	logAppender wal.LogAppender
+	logger      logger.Logger
 	opts        WriterOpts
 }
 
 // NewWriter creates a new Writer that writes transactions to the given LogAppender.
-func NewWriter(allocator IDAllocator, logAppender wal.LogAppender, opts WriterOpts) *Writer {
+func NewWriter(allocator IDAllocator, logAppender wal.LogAppender, opts WriterOpts, lg logger.Logger) *Writer {
+	if lg == nil {
+		lg = logger.NoOpLogger{}
+	}
 	return &Writer{
 		idAllocator: allocator,
 		logAppender: logAppender,
+		logger:      lg,
 		opts:        opts,
 	}
 }
