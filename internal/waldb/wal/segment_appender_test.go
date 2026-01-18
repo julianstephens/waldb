@@ -68,25 +68,25 @@ func createDeletePayload(txnID uint64, key []byte) []byte {
 	return payload
 }
 
-// TestNewSegmentWriterValid tests creating a SegmentWriter with a valid file
-func TestNewSegmentWriterValid(t *testing.T) {
+// TestNewSegmentAppenderValid tests creating a SegmentAppender with a valid file
+func TestNewSegmentAppenderValid(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
-	tst.AssertNotNil(t, writer, "expected non-nil SegmentWriter")
+	tst.AssertNotNil(t, writer, "expected non-nil SegmentAppender")
 	defer writer.Close() //nolint:errcheck
 }
 
-// TestNewSegmentWriterNilFile tests creating a SegmentWriter with nil file
-func TestNewSegmentWriterNilFile(t *testing.T) {
-	writer, err := wal.NewSegmentWriter(nil)
+// TestNewSegmentAppenderNilFile tests creating a SegmentAppender with nil file
+func TestNewSegmentAppenderNilFile(t *testing.T) {
+	writer, err := wal.NewSegmentAppender(nil)
 	if err == nil {
 		t.Fatal("expected error for nil file")
 	}
 	if writer != nil {
-		t.Fatal("expected nil SegmentWriter")
+		t.Fatal("expected nil SegmentAppender")
 	}
 }
 
@@ -95,7 +95,7 @@ func TestAppendSingleRecord(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -111,7 +111,7 @@ func TestAppendMultipleRecords(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -134,7 +134,7 @@ func TestAppendDifferentRecordTypes(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -173,7 +173,7 @@ func TestAppendMinimalPayloads(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestAppendLargePayload(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestAppendAfterClose(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestFlushSingleRecord(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestFlushAfterClose(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestFSyncSingleRecord(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestFSyncAfterClose(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestCloseMultipleTimes(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestExistingSegmentFile(t *testing.T) {
 
 	// Write some initial data
 	payload := createBeginPayload(1)
-	encoded, err := record.Encode(record.RecordTypeBeginTransaction, payload)
+	encoded, err := record.EncodeFrame(record.RecordTypeBeginTransaction, payload)
 	if err != nil {
 		t.Fatalf("unexpected error encoding: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestExistingSegmentFile(t *testing.T) {
 	}
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestAppendMultipleAndFlush(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestAppendAndFSync(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestConcurrentAppends(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -528,7 +528,7 @@ func TestWrittenDataReadability(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -572,7 +572,7 @@ func TestAppendInvalidRecordType(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -591,7 +591,7 @@ func TestAppendBeginInvalidPayloadSize(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -610,7 +610,7 @@ func TestAppendCommitInvalidPayloadSize(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -629,7 +629,7 @@ func TestAppendPutInsufficientPayload(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -648,7 +648,7 @@ func TestAppendDeleteInsufficientPayload(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -667,7 +667,7 @@ func TestAppendPutPayloadTooLarge(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -688,7 +688,7 @@ func TestAppendOversizeDeleteKey(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -709,7 +709,7 @@ func TestAppendReturnError(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	if err != nil {
 		t.Fatalf("unexpected error creating writer: %v", err)
 	}
@@ -743,7 +743,7 @@ func TestFlushOnClosedWriter(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck,gosec
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 
 	// Close the writer
@@ -765,7 +765,7 @@ func TestFSyncReturnError(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -789,7 +789,7 @@ func TestCloseReturnError(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 
 	// Close the underlying file to cause Close to fail
@@ -839,7 +839,7 @@ func TestRoundTripDecodeSingleRecord(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -870,7 +870,7 @@ func TestRoundTripDecodeSingleRecord(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Decode the record
-	decoded, err := record.Decode(append(lengthBuf, recordBytes...))
+	decoded, err := record.DecodeFrame(append(lengthBuf, recordBytes...))
 	tst.RequireNoError(t, err)
 
 	// Verify type and payload match
@@ -889,7 +889,7 @@ func TestRoundTripDecodeMultipleRecords(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -941,7 +941,7 @@ func TestRoundTripDecodeMultipleRecords(t *testing.T) {
 		tst.RequireNoError(t, err)
 
 		// Decode the record
-		decoded, err := record.Decode(append(lengthBuf, recordBytes...))
+		decoded, err := record.DecodeFrame(append(lengthBuf, recordBytes...))
 		tst.RequireNoError(t, err)
 
 		// Verify matches expected
@@ -960,7 +960,7 @@ func TestOffsetsAreExact(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -989,7 +989,7 @@ func TestOffsetsAreExact(t *testing.T) {
 		offsets = append(offsets, offset)
 
 		// Calculate what the encoded size will be
-		encoded, err := record.Encode(tr.recordType, tr.payload)
+		encoded, err := record.EncodeFrame(tr.recordType, tr.payload)
 		tst.RequireNoError(t, err)
 		encodedSizes = append(encodedSizes, len(encoded))
 	}
@@ -1007,7 +1007,7 @@ func TestAppendDoesNotFlush(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -1040,7 +1040,7 @@ func TestConcurrentAppendsConcurrencyInvariant(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
 
-	writer, err := wal.NewSegmentWriter(file)
+	writer, err := wal.NewSegmentAppender(file)
 	tst.RequireNoError(t, err)
 	defer writer.Close() //nolint:errcheck
 
@@ -1106,7 +1106,7 @@ func TestConcurrentAppendsConcurrencyInvariant(t *testing.T) {
 		}
 
 		// Decode the record (ensures no corruption)
-		_, err = record.Decode(append(lengthBuf, recordBytes...))
+		_, err = record.DecodeFrame(append(lengthBuf, recordBytes...))
 		tst.RequireNoError(t, err)
 
 		decodedCount++

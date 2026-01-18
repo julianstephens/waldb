@@ -11,35 +11,35 @@ import (
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
-type ManagerOpts struct {
+type LogOpts struct {
 	// 0 means "never rotate" (single segment)
 	SegmentMaxBytes int64
 }
 
-type Manager struct {
+type Log struct {
 	mu sync.Mutex
 
 	dir  string
-	opts ManagerOpts
+	opts LogOpts
 
 	// segments is always kept sorted for binary search
 	segments    []uint64 // sorted ascending; includes activeSegId
 	activeSegId uint64
-	active      *SegmentWriter
+	active      *SegmentAppender
 
 	closed bool
 }
 
-func managerClosed(dir string) error {
-	return &ManagerError{
+func logClosed(dir string) error {
+	return &LogError{
 		Err: ErrWALClosed,
 		Dir: dir,
-		Op:  "manager",
+		Op:  "log",
 	}
 }
 
-func wrapManagerErr(op string, sentinel error, dir string, segID uint64, cause error) error {
-	return &ManagerError{
+func wrapLogErr(op string, sentinel error, dir string, segID uint64, cause error) error {
+	return &LogError{
 		Err:   sentinel,
 		Dir:   dir,
 		SegID: segID,
@@ -68,10 +68,10 @@ func listSegments(dir string) ([]uint64, error) {
 	return segs, nil
 }
 
-// OpenManager opens or creates the WAL directory, discovers existing segments,
+// OpenLog opens or creates the WAL directory, discovers existing segments,
 // selects the active segment, and prepares it for append.
-func OpenManager(dir string, opts ManagerOpts) (SegmentProvider, error) {
-	mgr := &Manager{
+func OpenLog(dir string, opts LogOpts) (*Log, error) {
+	mgr := &Log{
 		mu:     sync.Mutex{},
 		dir:    dir,
 		opts:   opts,
@@ -79,12 +79,12 @@ func OpenManager(dir string, opts ManagerOpts) (SegmentProvider, error) {
 	}
 
 	if err := helpers.Ensure(dir, true); err != nil {
-		return nil, wrapManagerErr("ensure_wal_dir", ErrInvalidWALDir, dir, 0, err)
+		return nil, wrapLogErr("ensure_wal_dir", ErrInvalidWALDir, dir, 0, err)
 	}
 
 	segs, err := listSegments(dir)
 	if err != nil {
-		return nil, wrapManagerErr("list_segments", ErrSegmentList, dir, 0, err)
+		return nil, wrapLogErr("list_segments", ErrSegmentList, dir, 0, err)
 	}
 
 	mgr.segments = segs
@@ -97,7 +97,7 @@ func OpenManager(dir string, opts ManagerOpts) (SegmentProvider, error) {
 		// No segments exist; create the first one
 		activeFile, activeSegId, err = mgr.createNextSegment(dir, 0)
 		if err != nil {
-			return nil, wrapManagerErr("create_segment", ErrSegmentCreate, dir, 0, err)
+			return nil, wrapLogErr("create_segment", ErrSegmentCreate, dir, 0, err)
 		}
 		mgr.segments = append(mgr.segments, activeSegId)
 		mgr.sortSegments()
@@ -105,53 +105,53 @@ func OpenManager(dir string, opts ManagerOpts) (SegmentProvider, error) {
 		activeSegId = mgr.segments[len(mgr.segments)-1]
 		activeSegPath := mgr.segmentPath(dir, activeSegId, true)
 		if activeSegPath == "" {
-			return nil, wrapManagerErr("get_segment_path", ErrSegmentNotFound, dir, activeSegId, nil)
+			return nil, wrapLogErr("get_segment_path", ErrSegmentNotFound, dir, activeSegId, nil)
 		}
 		activeFile, err = mgr.openSegmentForAppend(activeSegPath)
 		if err != nil {
-			return nil, wrapManagerErr("open_segment", ErrSegmentOpen, dir, activeSegId, err)
+			return nil, wrapLogErr("open_segment", ErrSegmentOpen, dir, activeSegId, err)
 		}
 	}
 
 	if activeFile == nil {
-		return nil, wrapManagerErr("open_segment", ErrNilSegmentFile, dir, activeSegId, nil)
+		return nil, wrapLogErr("open_segment", ErrNilSegmentFile, dir, activeSegId, nil)
 	}
 
-	activeWriter, err := NewSegmentWriter(activeFile)
+	activeWriter, err := NewSegmentAppender(activeFile)
 	if err != nil {
-		return nil, wrapManagerErr("create_segment_writer", ErrSegmentOpen, dir, activeSegId, err)
+		return nil, wrapLogErr("create_segment_writer", ErrSegmentOpen, dir, activeSegId, err)
 	}
 
 	mgr.activeSegId = activeSegId
-	mgr.active = activeWriter
+	mgr.active = activeWriter.(*SegmentAppender)
 
 	return mgr, nil
 }
 
-func (m *Manager) SegmentIDs() []uint64 {
+func (m *Log) SegmentIDs() []uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return slices.Clone(m.segments)
 }
 
-func (m *Manager) SegmentPath(segId uint64) string {
+func (m *Log) SegmentPath(segId uint64) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.segmentPath(m.dir, segId, true)
 }
 
-func (m *Manager) OpenSegment(segId uint64) (SegmentReader, error) {
+func (m *Log) OpenSegment(segId uint64) (SegmentReader, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	segPath := m.segmentPath(m.dir, segId, true)
 	if segPath == "" {
-		return nil, wrapManagerErr("get_segment_path", ErrSegmentNotFound, m.dir, segId, nil)
+		return nil, wrapLogErr("get_segment_path", ErrSegmentNotFound, m.dir, segId, nil)
 	}
 
 	file, err := os.Open(segPath) //nolint:gosec
 	if err != nil {
-		return nil, wrapManagerErr("open_segment", ErrSegmentOpen, m.dir, segId, err)
+		return nil, wrapLogErr("open_segment", ErrSegmentOpen, m.dir, segId, err)
 	}
 
 	return NewFileSegmentReader(segId, file), nil
@@ -159,65 +159,63 @@ func (m *Manager) OpenSegment(segId uint64) (SegmentReader, error) {
 
 // Append appends a single framed WAL record to the active segment,
 // rotating segments if policy requires.
-func (m *Manager) Append(rt record.RecordType, payload []byte) (segId uint64, offset int64, err error) {
+func (m *Log) Append(rt record.RecordType, payload []byte) (offset int64, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.closed {
-		err = managerClosed(m.dir)
+		err = logClosed(m.dir)
 		return
 	}
 
 	if err2 := m.maybeRotateLocked(len(payload)); err2 != nil {
-		err = wrapManagerErr("rotate_segment", ErrSegmentRotate, m.dir, m.activeSegId, err2)
+		err = wrapLogErr("rotate_segment", ErrSegmentRotate, m.dir, m.activeSegId, err2)
 		return
 	}
 
 	offset, err2 := m.active.Append(rt, payload)
 	if err2 != nil {
-		err = wrapManagerErr("append_record", ErrAppendFailed, m.dir, m.activeSegId, err2)
+		err = wrapLogErr("append_record", ErrAppendFailed, m.dir, m.activeSegId, err2)
 		return
 	}
-
-	segId = m.activeSegId
 
 	return
 }
 
 // Flush flushes buffered writes of the active segment.
-func (m *Manager) Flush() error {
+func (m *Log) Flush() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.closed {
-		return managerClosed(m.dir)
+		return logClosed(m.dir)
 	}
 
 	if err := m.active.Flush(); err != nil {
-		return wrapManagerErr("flush_segment", ErrSegmentFlush, m.dir, m.activeSegId, err)
+		return wrapLogErr("flush_segment", ErrSegmentFlush, m.dir, m.activeSegId, err)
 	}
 
 	return nil
 }
 
 // FSync flushes then fsyncs the active segment.
-func (m *Manager) FSync() error {
+func (m *Log) FSync() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.closed {
-		return managerClosed(m.dir)
+		return logClosed(m.dir)
 	}
 
 	if err := m.active.FSync(); err != nil {
-		return wrapManagerErr("fsync_segment", ErrSegmentSync, m.dir, m.activeSegId, err)
+		return wrapLogErr("fsync_segment", ErrSegmentSync, m.dir, m.activeSegId, err)
 	}
 
 	return nil
 }
 
-// Close closes the active segment writer and marks the manager closed.
-func (m *Manager) Close() error {
+// Close closes the active segment writer and marks the log closed.
+func (m *Log) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -227,14 +225,14 @@ func (m *Manager) Close() error {
 	m.closed = true
 
 	if err := m.active.Close(); err != nil {
-		return wrapManagerErr("close_segment", ErrSegmentClose, m.dir, m.activeSegId, err)
+		return wrapLogErr("close_segment", ErrSegmentClose, m.dir, m.activeSegId, err)
 	}
 
 	return nil
 }
 
 // sortSegments sorts the segment IDs in ascending order.
-func (m *Manager) sortSegments() {
+func (m *Log) sortSegments() {
 	slices.SortFunc(m.segments, func(a, b uint64) int {
 		if a < b {
 			return -1
@@ -247,7 +245,7 @@ func (m *Manager) sortSegments() {
 
 // segmentPath returns the path for the given segment ID.
 // If shouldExist is true, it returns an empty string if the segment ID is not found.
-func (m *Manager) segmentPath(dir string, segId uint64, shouldExist bool) string {
+func (m *Log) segmentPath(dir string, segId uint64, shouldExist bool) string {
 	if _, exists := slices.BinarySearch(m.segments, segId); shouldExist && !exists {
 		return ""
 	}
@@ -255,7 +253,7 @@ func (m *Manager) segmentPath(dir string, segId uint64, shouldExist bool) string
 }
 
 // openSegmentForAppend opens the segment file at the given path for appending.
-func (m *Manager) openSegmentForAppend(path string) (*os.File, error) {
+func (m *Log) openSegmentForAppend(path string) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o600) //nolint:gosec
 	if err != nil {
 		return nil, err
@@ -264,7 +262,7 @@ func (m *Manager) openSegmentForAppend(path string) (*os.File, error) {
 }
 
 // createNextSegment creates a new segment file with the next segment ID.
-func (m *Manager) createNextSegment(dir string, segId uint64) (*os.File, uint64, error) {
+func (m *Log) createNextSegment(dir string, segId uint64) (*os.File, uint64, error) {
 	path := m.segmentPath(dir, segId+1, false)
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0o600) //nolint:gosec
 	if err != nil {
@@ -274,7 +272,7 @@ func (m *Manager) createNextSegment(dir string, segId uint64) (*os.File, uint64,
 }
 
 // maybeRotateLocked decides whether to rotate before appending the next record
-func (m *Manager) maybeRotateLocked(payloadLen int) error {
+func (m *Log) maybeRotateLocked(payloadLen int) error {
 	// No rotation if SegmentMaxBytes == 0
 	if m.opts.SegmentMaxBytes <= 0 {
 		return nil
@@ -293,7 +291,7 @@ func (m *Manager) maybeRotateLocked(payloadLen int) error {
 	if err != nil {
 		return err
 	}
-	newWriter, err := NewSegmentWriter(newFile)
+	newWriter, err := NewSegmentAppender(newFile)
 	if err != nil {
 		return err
 	}
@@ -301,7 +299,7 @@ func (m *Manager) maybeRotateLocked(payloadLen int) error {
 	m.segments = append(m.segments, newSegId)
 	m.sortSegments()
 	m.activeSegId = newSegId
-	m.active = newWriter
+	m.active = newWriter.(*SegmentAppender)
 
 	return nil
 }

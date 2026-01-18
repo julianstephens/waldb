@@ -11,15 +11,15 @@ type WriterOpts struct {
 
 type Writer struct {
 	idAllocator IDAllocator
-	logSink     wal.LogWriter
+	logAppender wal.LogAppender
 	opts        WriterOpts
 }
 
-// NewWriter creates a new Writer that writes transactions to the given LogSink.
-func NewWriter(allocator IDAllocator, logSink wal.LogWriter, opts WriterOpts) *Writer {
+// NewWriter creates a new Writer that writes transactions to the given LogAppender.
+func NewWriter(allocator IDAllocator, logAppender wal.LogAppender, opts WriterOpts) *Writer {
 	return &Writer{
 		idAllocator: allocator,
-		logSink:     logSink,
+		logAppender: logAppender,
 		opts:        opts,
 	}
 }
@@ -27,67 +27,74 @@ func NewWriter(allocator IDAllocator, logSink wal.LogWriter, opts WriterOpts) *W
 // Commit writes a transaction consisting of the operations in the given batch to the WAL.
 // It returns the assigned transaction ID upon success.
 func (w *Writer) Commit(batch *Batch) (txnId uint64, err error) {
+	if err2 := batch.Validate(); err2 != nil {
+		err = &CommitError{
+			Err:   ErrCommitInvalidBatch,
+			Stage: StageValidateBatch,
+			Cause: err2,
+		}
+		return
+	}
+
 	txnId = w.idAllocator.Next()
 
 	beginTxn, err2 := record.EncodeBeginTxnPayload(txnId)
 	if err2 != nil {
-		err = err2
+		err = wrapCommitErr(StageEncodeBegin, ErrCommitEncodeBegin, txnId, err2)
 		return
 	}
-	_, err = w.logSink.Append(record.RecordTypeBeginTransaction, beginTxn)
-	if err != nil {
+	_, err2 = w.logAppender.Append(record.RecordTypeBeginTransaction, beginTxn)
+	if err2 != nil {
+		err = wrapCommitErr(StageAppendBegin, ErrCommitAppendBegin, txnId, err2)
 		return
 	}
 
-	for _, op := range batch.ops {
+	for i, op := range batch.Ops() {
 		switch op.Kind {
 		case OpPut:
 			putOp, err2 := record.EncodePutOpPayload(txnId, op.Key, op.Value)
 			if err2 != nil {
-				err = err2
+				err = wrapCommitOpErr(StageEncodeOp, ErrCommitEncodeOp, txnId, i, op, err2)
 				return
 			}
-			_, err = w.logSink.Append(record.RecordTypePutOperation, putOp)
-			if err != nil {
+			_, err2 = w.logAppender.Append(record.RecordTypePutOperation, putOp)
+			if err2 != nil {
+				err = wrapCommitOpErr(StageAppendOp, ErrCommitAppendOp, txnId, i, op, err2)
 				return
 			}
 		case OpDelete:
 			deleteOp, err2 := record.EncodeDeleteOpPayload(txnId, op.Key)
 			if err2 != nil {
-				err = err2
+				err = wrapCommitOpErr(StageEncodeOp, ErrCommitEncodeOp, txnId, i, op, err2)
 				return
 			}
-			_, err = w.logSink.Append(record.RecordTypeDeleteOperation, deleteOp)
-			if err != nil {
+			_, err2 = w.logAppender.Append(record.RecordTypeDeleteOperation, deleteOp)
+			if err2 != nil {
+				err = wrapCommitOpErr(StageAppendOp, ErrCommitAppendOp, txnId, i, op, err2)
 				return
 			}
-		default:
-			err = &TxnIDError{
-				Err:  ErrTxnInvalidOpKind,
-				Have: uint64(op.Kind),
-				Want: uint64(OpPut),
-			}
-			return
 		}
 	}
 
 	commitTxn, err2 := record.EncodeCommitTxnPayload(txnId)
 	if err2 != nil {
-		err = err2
+		err = wrapCommitErr(StageEncodeCommit, ErrCommitEncodeCommit, txnId, err2)
 		return
 	}
-	_, err = w.logSink.Append(record.RecordTypeCommitTransaction, commitTxn)
-	if err != nil {
+	_, err2 = w.logAppender.Append(record.RecordTypeCommitTransaction, commitTxn)
+	if err2 != nil {
+		err = wrapCommitErr(StageAppendCommit, ErrCommitAppendCommit, txnId, err2)
 		return
 	}
 
-	if err = w.Flush(); err != nil {
+	if err2 = w.Flush(); err2 != nil {
+		err = wrapCommitErr(StageFlush, ErrCommitFlush, txnId, err2)
 		return
 	}
 
 	if w.opts.FsyncOnCommit {
-		err = w.FSync()
-		if err != nil {
+		if err2 = w.FSync(); err2 != nil {
+			err = wrapCommitErr(StageFSync, ErrCommitFSync, txnId, err2)
 			return
 		}
 	}
@@ -96,9 +103,9 @@ func (w *Writer) Commit(batch *Batch) (txnId uint64, err error) {
 }
 
 func (w *Writer) Flush() error {
-	return w.logSink.Flush()
+	return w.logAppender.Flush()
 }
 
 func (w *Writer) FSync() error {
-	return w.logSink.FSync()
+	return w.logAppender.FSync()
 }

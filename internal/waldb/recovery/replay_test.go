@@ -177,7 +177,7 @@ func TestReplaySingleBeginTransaction(t *testing.T) {
 	// Create a begin transaction record
 	beginPayload, err := record.EncodeBeginTxnPayload(1)
 	tst.RequireNoError(t, err)
-	encodedRec, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload)
+	encodedRec, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload)
 	tst.RequireNoError(t, err)
 
 	mockReader := &MockSegmentReader{
@@ -201,12 +201,12 @@ func TestReplayMultipleSegments(t *testing.T) {
 	// Create begin transaction records
 	beginPayload1, err := record.EncodeBeginTxnPayload(1)
 	tst.RequireNoError(t, err)
-	encodedRec1, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload1)
+	encodedRec1, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload1)
 	tst.RequireNoError(t, err)
 
 	beginPayload2, err := record.EncodeBeginTxnPayload(2)
 	tst.RequireNoError(t, err)
-	encodedRec2, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload2)
+	encodedRec2, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload2)
 	tst.RequireNoError(t, err)
 
 	mockReader1 := &MockSegmentReader{
@@ -239,12 +239,12 @@ func TestReplayStartFromMiddleSegment(t *testing.T) {
 	// Create begin transaction records
 	beginPayload1, err := record.EncodeBeginTxnPayload(1)
 	tst.RequireNoError(t, err)
-	encodedRec1, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload1)
+	encodedRec1, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload1)
 	tst.RequireNoError(t, err)
 
 	beginPayload2, err := record.EncodeBeginTxnPayload(2)
 	tst.RequireNoError(t, err)
-	encodedRec2, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload2)
+	encodedRec2, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload2)
 	tst.RequireNoError(t, err)
 
 	mockReader1 := &MockSegmentReader{
@@ -278,7 +278,7 @@ func TestReplayStartFromMiddleSegment(t *testing.T) {
 func TestReplayCloseSegmentError(t *testing.T) {
 	beginPayload, err := record.EncodeBeginTxnPayload(1)
 	tst.RequireNoError(t, err)
-	encodedRec, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload)
+	encodedRec, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload)
 	tst.RequireNoError(t, err)
 
 	mockReader := &MockSegmentReader{
@@ -302,7 +302,7 @@ func TestReplayCloseSegmentError(t *testing.T) {
 func TestReplayUpdatesBoundary(t *testing.T) {
 	beginPayload, err := record.EncodeBeginTxnPayload(1)
 	tst.RequireNoError(t, err)
-	encodedRec, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload)
+	encodedRec, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload)
 	tst.RequireNoError(t, err)
 
 	mockReader := &MockSegmentReader{
@@ -327,7 +327,7 @@ func TestReplayUpdatesBoundary(t *testing.T) {
 func TestReplaySeekFirstSegmentAtStartOffset(t *testing.T) {
 	beginPayload, err := record.EncodeBeginTxnPayload(1)
 	tst.RequireNoError(t, err)
-	encodedRec, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload)
+	encodedRec, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload)
 	tst.RequireNoError(t, err)
 
 	mockReader := &MockSegmentReader{
@@ -352,12 +352,12 @@ func TestReplaySeekFirstSegmentAtStartOffset(t *testing.T) {
 func TestReplaySeekSubsequentSegmentAtZero(t *testing.T) {
 	beginPayload1, err := record.EncodeBeginTxnPayload(1)
 	tst.RequireNoError(t, err)
-	encodedRec1, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload1)
+	encodedRec1, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload1)
 	tst.RequireNoError(t, err)
 
 	beginPayload2, err := record.EncodeBeginTxnPayload(2)
 	tst.RequireNoError(t, err)
-	encodedRec2, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload2)
+	encodedRec2, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload2)
 	tst.RequireNoError(t, err)
 
 	mockReader1 := &MockSegmentReader{
@@ -408,7 +408,7 @@ func TestReplayRecordReadError(t *testing.T) {
 // TestReplayInvalidRecordType tests replay with invalid record type
 func TestReplayInvalidRecordType(t *testing.T) {
 	// Create a record with invalid type
-	encodedRec, _ := record.Encode(record.RecordType(255), []byte{})
+	encodedRec, _ := record.EncodeFrame(record.RecordType(255), []byte{})
 
 	mockReader := &MockSegmentReader{
 		segId: 1,
@@ -431,7 +431,7 @@ func TestReplayMemtableIntegration(t *testing.T) {
 	// Create a put operation
 	putPayload, err := record.EncodePutOpPayload(1, []byte("testkey"), []byte("testvalue"))
 	tst.RequireNoError(t, err)
-	encodedRec, err := record.Encode(record.RecordTypePutOperation, putPayload)
+	encodedRec, err := record.EncodeFrame(record.RecordTypePutOperation, putPayload)
 	tst.RequireNoError(t, err)
 
 	mockReader := &MockSegmentReader{
@@ -457,7 +457,7 @@ func TestReplaySegment2SeekOffset(t *testing.T) {
 	// Create a begin transaction record for segment 2
 	beginPayload, err := record.EncodeBeginTxnPayload(1)
 	tst.RequireNoError(t, err)
-	encodedRec, err := record.Encode(record.RecordTypeBeginTransaction, beginPayload)
+	encodedRec, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload)
 	tst.RequireNoError(t, err)
 
 	// Create segment 1 (will be skipped since we start at segment 2)

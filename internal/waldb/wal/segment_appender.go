@@ -13,11 +13,11 @@ const (
 	segmentWriterBufferSize = 64 << 10 // 64KiB
 )
 
-// SegmentWriter appends records to a WAL segment file.
+// SegmentAppender appends records to a WAL segment file.
 // It is safe for concurrent use by multiple goroutines, but
 // all operations are serialized internally. Append, Flush,
 // FSync, and Close must not be long-running
-type SegmentWriter struct {
+type SegmentAppender struct {
 	currSegmentFile *os.File
 	currOffset      int64
 	writer          *bufio.Writer
@@ -25,8 +25,8 @@ type SegmentWriter struct {
 	mu              sync.Mutex
 }
 
-// NewSegmentWriter creates a new SegmentWriter that appends records to the given segment file.
-func NewSegmentWriter(segmentFile *os.File) (*SegmentWriter, error) {
+// NewSegmentAppender creates a new SegmentAppender that appends records to the given segment file.
+func NewSegmentAppender(segmentFile *os.File) (LogAppender, error) {
 	if segmentFile == nil {
 		return nil, ErrNilSegmentFile
 	}
@@ -41,7 +41,7 @@ func NewSegmentWriter(segmentFile *os.File) (*SegmentWriter, error) {
 		return nil, err
 	}
 
-	return &SegmentWriter{
+	return &SegmentAppender{
 		currSegmentFile: segmentFile,
 		currOffset:      size,
 		writer:          bufio.NewWriterSize(segmentFile, segmentWriterBufferSize),
@@ -50,7 +50,7 @@ func NewSegmentWriter(segmentFile *os.File) (*SegmentWriter, error) {
 	}, nil
 }
 
-func (sw *SegmentWriter) CurrentOffset() int64 {
+func (sw *SegmentAppender) CurrentOffset() int64 {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
@@ -59,7 +59,7 @@ func (sw *SegmentWriter) CurrentOffset() int64 {
 
 // Append appends a record with the given type and payload to the segment.
 // It returns the offset where the record was written or an error.
-func (sw *SegmentWriter) Append(recordType record.RecordType, payload []byte) (offset int64, err error) {
+func (sw *SegmentAppender) Append(recordType record.RecordType, payload []byte) (offset int64, err error) {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
@@ -80,7 +80,7 @@ func (sw *SegmentWriter) Append(recordType record.RecordType, payload []byte) (o
 		return
 	}
 
-	framedRecord, err2 := record.Encode(recordType, payload)
+	framedRecord, err2 := record.EncodeFrame(recordType, payload)
 	if err2 != nil {
 		err = &SegmentWriteError{
 			Err:        ErrInvalidRecord,
@@ -123,7 +123,7 @@ func (sw *SegmentWriter) Append(recordType record.RecordType, payload []byte) (o
 }
 
 // Flush flushes any buffered data to the underlying segment file.
-func (sw *SegmentWriter) Flush() error {
+func (sw *SegmentAppender) Flush() error {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
@@ -142,7 +142,7 @@ func (sw *SegmentWriter) Flush() error {
 }
 
 // FSync flushes any buffered data and syncs the underlying segment file to disk.
-func (sw *SegmentWriter) FSync() error {
+func (sw *SegmentAppender) FSync() error {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
@@ -170,7 +170,7 @@ func (sw *SegmentWriter) FSync() error {
 
 // Close flushes any buffered data and closes the underlying segment file.
 // After calling Close, the SegmentWriter cannot be used again.
-func (sw *SegmentWriter) Close() error {
+func (sw *SegmentAppender) Close() error {
 	sw.mu.Lock()
 	defer sw.mu.Unlock()
 
@@ -197,7 +197,7 @@ func (sw *SegmentWriter) Close() error {
 	return nil
 }
 
-func (sw *SegmentWriter) flush() error {
+func (sw *SegmentAppender) flush() error {
 	if err := sw.writer.Flush(); err != nil {
 		return &SegmentWriteError{
 			Err:    ErrFlushFailed,

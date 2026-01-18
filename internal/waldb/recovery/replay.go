@@ -77,7 +77,7 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table) (*Re
 			}
 		}
 
-		rr := wal.NewRecordReader(sr.Reader())
+		rr := record.NewFrameReader(sr.Reader())
 		for {
 			rec, err := rr.Next()
 			if err != nil {

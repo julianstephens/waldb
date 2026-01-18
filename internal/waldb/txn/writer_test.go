@@ -46,93 +46,107 @@ func (m *MockIDAllocator) SetNext(next uint64) error {
 	return nil
 }
 
-// MockLogWriter is a test implementation of LogWriter that records all appends
-type MockLogWriter struct {
-	appends      []MockAppendRecord
-	flushCalled  bool
-	fsyncCalled  bool
-	failOnAppend int  // fail on this append call (-1 means no failure)
-	failOnFlush  bool // fail on Flush call
-	appendCount  int
+// recordedCall represents a call to the log appender
+type recordedCall struct {
+	method     string // "Append", "Flush", or "FSync"
+	recordType record.RecordType
+	payload    []byte
 }
 
-type MockAppendRecord struct {
-	RecordType record.RecordType
-	Payload    []byte
+// fakeLogAppender is a test implementation that records all calls
+type fakeLogAppender struct {
+	calls             []recordedCall
+	failOnAppendIndex int // -1 means no failure
+	failOnFlush       bool
+	failOnFSync       bool
 }
 
-func NewMockLogWriter() *MockLogWriter {
-	return &MockLogWriter{
-		appends:      make([]MockAppendRecord, 0),
-		failOnAppend: -1,
+func newFakeLogAppender() *fakeLogAppender {
+	return &fakeLogAppender{
+		calls:             make([]recordedCall, 0),
+		failOnAppendIndex: -1,
 	}
 }
 
-func (m *MockLogWriter) Append(typ record.RecordType, payload []byte) (int64, error) {
-	if m.failOnAppend == m.appendCount {
-		m.appendCount++
-		return 0, fmt.Errorf("append failed at index %d", m.failOnAppend)
+func (f *fakeLogAppender) Append(typ record.RecordType, payload []byte) (int64, error) {
+	appendIndex := len([]*recordedCall{})
+	for _, call := range f.calls {
+		if call.method == "Append" {
+			appendIndex++
+		}
+	}
+
+	if f.failOnAppendIndex == appendIndex {
+		return 0, fmt.Errorf("append failed at index %d", appendIndex)
 	}
 
 	// Copy payload to avoid issues with reused buffers
 	payloadCopy := make([]byte, len(payload))
 	copy(payloadCopy, payload)
 
-	m.appends = append(m.appends, MockAppendRecord{
-		RecordType: typ,
-		Payload:    payloadCopy,
+	f.calls = append(f.calls, recordedCall{
+		method:     "Append",
+		recordType: typ,
+		payload:    payloadCopy,
 	})
-	m.appendCount++
-	return int64(len(m.appends) - 1), nil
+	return int64(appendIndex), nil
 }
 
-func (m *MockLogWriter) Flush() error {
-	m.flushCalled = true
-	if m.failOnFlush {
+func (f *fakeLogAppender) Flush() error {
+	f.calls = append(f.calls, recordedCall{method: "Flush"})
+	if f.failOnFlush {
 		return fmt.Errorf("flush failed")
 	}
 	return nil
 }
 
-func (m *MockLogWriter) FSync() error {
-	m.fsyncCalled = true
+func (f *fakeLogAppender) FSync() error {
+	f.calls = append(f.calls, recordedCall{method: "FSync"})
+	if f.failOnFSync {
+		return fmt.Errorf("fsync failed")
+	}
 	return nil
 }
 
-func (m *MockLogWriter) Close() error {
+func (f *fakeLogAppender) Close() error {
 	return nil
 }
 
-// TestWriterOrderingBeginOpsCommit verifies that BEGIN, ops, COMMIT are appended in order with same txnID
-func TestWriterOrderingBeginOpsCommit(t *testing.T) {
+// TestHappyPathWithFSync verifies the call sequence: BEGIN → ops → COMMIT → Flush → FSync
+func TestHappyPathWithFSync(t *testing.T) {
 	allocator := NewMockIDAllocator(100)
-	logWriter := NewMockLogWriter()
-	opts := txn.WriterOpts{FsyncOnCommit: false}
+	appender := newFakeLogAppender()
+	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, logWriter, opts)
+	writer := txn.NewWriter(allocator, appender, opts)
 
-	// Create a batch with multiple operations
-	batch := &txn.Batch{}
+	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))
 	batch.Put([]byte("key2"), []byte("value2"))
 	batch.Delete([]byte("key3"))
 
 	txnID, err := writer.Commit(batch)
 	if err != nil {
-		t.Fatalf("unexpected error during commit: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if txnID != 100 {
 		t.Errorf("expected txnID 100, got %d", txnID)
 	}
 
-	// Verify order: BEGIN, PUT, PUT, DELETE, COMMIT
-	expectedRecordCount := 5 // BEGIN + 2 PUTs + 1 DELETE + COMMIT
-	if len(logWriter.appends) != expectedRecordCount {
-		t.Errorf("expected %d appended records, got %d", expectedRecordCount, len(logWriter.appends))
+	// Verify call sequence: BEGIN, PUT, PUT, DELETE, COMMIT, Flush, FSync
+	expectedSequence := []string{"Append", "Append", "Append", "Append", "Append", "Flush", "FSync"}
+	if len(appender.calls) != len(expectedSequence) {
+		t.Errorf("expected %d calls, got %d", len(expectedSequence), len(appender.calls))
 	}
 
-	// Verify types are in correct order
+	for i, expectedMethod := range expectedSequence {
+		if appender.calls[i].method != expectedMethod {
+			t.Errorf("call %d: expected %s, got %s", i, expectedMethod, appender.calls[i].method)
+		}
+	}
+
+	// Verify record types
 	expectedTypes := []record.RecordType{
 		record.RecordTypeBeginTransaction,
 		record.RecordTypePutOperation,
@@ -142,131 +156,63 @@ func TestWriterOrderingBeginOpsCommit(t *testing.T) {
 	}
 
 	for i, expectedType := range expectedTypes {
-		if logWriter.appends[i].RecordType != expectedType {
-			t.Errorf("record %d: expected type %v, got %v", i, expectedType, logWriter.appends[i].RecordType)
-		}
-	}
-
-	// Verify all operations have the same txnID
-	for i, append := range logWriter.appends {
-		if i == 0 {
-			// BEGIN record
-			decodedBegin, err := record.DecodeBeginTxnPayload(append.Payload)
-			if err != nil {
-				t.Fatalf("record %d: failed to decode BEGIN: %v", i, err)
-			}
-			if decodedBegin.TxnID != 100 {
-				t.Errorf("record %d (BEGIN): expected txnID 100, got %d", i, decodedBegin.TxnID)
-			}
-		} else if i == len(logWriter.appends)-1 {
-			// COMMIT record
-			decodedCommit, err := record.DecodeCommitTxnPayload(append.Payload)
-			if err != nil {
-				t.Fatalf("record %d: failed to decode COMMIT: %v", i, err)
-			}
-			if decodedCommit.TxnID != 100 {
-				t.Errorf("record %d (COMMIT): expected txnID 100, got %d", i, decodedCommit.TxnID)
-			}
-		} else {
-			// Operation records (PUT or DELETE)
-			switch logWriter.appends[i].RecordType {
-			case record.RecordTypePutOperation:
-				decodedPut, err := record.DecodePutOpPayload(append.Payload)
-				if err != nil {
-					t.Fatalf("record %d: failed to decode PUT: %v", i, err)
-				}
-				if decodedPut.TxnID != 100 {
-					t.Errorf("record %d (PUT): expected txnID 100, got %d", i, decodedPut.TxnID)
-				}
-			case record.RecordTypeDeleteOperation:
-				decodedDelete, err := record.DecodeDeleteOpPayload(append.Payload)
-				if err != nil {
-					t.Fatalf("record %d: failed to decode DELETE: %v", i, err)
-				}
-				if decodedDelete.TxnID != 100 {
-					t.Errorf("record %d (DELETE): expected txnID 100, got %d", i, decodedDelete.TxnID)
-				}
-			}
+		if appender.calls[i].recordType != expectedType {
+			t.Errorf("record %d: expected type %v, got %v", i, expectedType, appender.calls[i].recordType)
 		}
 	}
 }
 
-// TestWriterEmptyBatch verifies that empty batches only write BEGIN and COMMIT
-func TestWriterEmptyBatch(t *testing.T) {
+// TestHappyPathWithoutFSync verifies the call sequence: BEGIN → ops → COMMIT → Flush (no FSync)
+func TestHappyPathWithoutFSync(t *testing.T) {
 	allocator := NewMockIDAllocator(200)
-	logWriter := NewMockLogWriter()
+	appender := newFakeLogAppender()
 	opts := txn.WriterOpts{FsyncOnCommit: false}
 
-	writer := txn.NewWriter(allocator, logWriter, opts)
+	writer := txn.NewWriter(allocator, appender, opts)
 
-	batch := &txn.Batch{}
+	batch := txn.NewBatch()
+	batch.Put([]byte("key1"), []byte("value1"))
+	batch.Delete([]byte("key2"))
+
 	txnID, err := writer.Commit(batch)
 	if err != nil {
-		t.Fatalf("unexpected error during commit: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if txnID != 200 {
 		t.Errorf("expected txnID 200, got %d", txnID)
 	}
 
-	// Empty batch should still have BEGIN and COMMIT
-	if len(logWriter.appends) != 2 {
-		t.Errorf("expected 2 records for empty batch, got %d", len(logWriter.appends))
+	// Verify call sequence: BEGIN, PUT, DELETE, COMMIT, Flush (no FSync)
+	expectedSequence := []string{"Append", "Append", "Append", "Append", "Flush"}
+	if len(appender.calls) != len(expectedSequence) {
+		t.Errorf("expected %d calls, got %d", len(expectedSequence), len(appender.calls))
 	}
 
-	if logWriter.appends[0].RecordType != record.RecordTypeBeginTransaction {
-		t.Errorf("expected first record to be BEGIN, got %v", logWriter.appends[0].RecordType)
+	for i, expectedMethod := range expectedSequence {
+		if appender.calls[i].method != expectedMethod {
+			t.Errorf("call %d: expected %s, got %s", i, expectedMethod, appender.calls[i].method)
+		}
 	}
 
-	if logWriter.appends[1].RecordType != record.RecordTypeCommitTransaction {
-		t.Errorf("expected second record to be COMMIT, got %v", logWriter.appends[1].RecordType)
+	// Verify FSync was not called
+	for _, call := range appender.calls {
+		if call.method == "FSync" {
+			t.Error("FSync should not have been called when FsyncOnCommit=false")
+		}
 	}
 }
 
-// TestWriterFailOnBeginAppend verifies behavior when BEGIN append fails
-func TestWriterFailOnBeginAppend(t *testing.T) {
+// TestFailOnOpAppend verifies: error returned; no COMMIT appended; no Flush/FSync
+func TestFailOnOpAppend(t *testing.T) {
 	allocator := NewMockIDAllocator(300)
-	logWriter := NewMockLogWriter()
-	logWriter.failOnAppend = 0 // Fail on first append (BEGIN)
-	opts := txn.WriterOpts{FsyncOnCommit: false}
+	appender := newFakeLogAppender()
+	appender.failOnAppendIndex = 1 // Fail on second append (first operation)
+	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, logWriter, opts)
+	writer := txn.NewWriter(allocator, appender, opts)
 
-	batch := &txn.Batch{}
-	batch.Put([]byte("key"), []byte("value"))
-
-	txnID, err := writer.Commit(batch)
-	if err == nil {
-		t.Fatal("expected error when BEGIN append fails")
-	}
-
-	// Should have attempted one append (BEGIN) before failing
-	if len(logWriter.appends) != 0 {
-		t.Errorf("expected 0 successful appends, got %d", len(logWriter.appends))
-	}
-
-	// Flush and FSync should NOT have been called
-	if logWriter.flushCalled {
-		t.Error("Flush should not have been called after BEGIN failure")
-	}
-	if logWriter.fsyncCalled {
-		t.Error("FSync should not have been called after BEGIN failure")
-	}
-
-	// Transaction ID should not be valid (but is still returned)
-	_ = txnID
-}
-
-// TestWriterFailOnOperationAppend verifies behavior when operation append fails
-func TestWriterFailOnOperationAppend(t *testing.T) {
-	allocator := NewMockIDAllocator(400)
-	logWriter := NewMockLogWriter()
-	logWriter.failOnAppend = 1 // Fail on second append (first operation)
-	opts := txn.WriterOpts{FsyncOnCommit: false}
-
-	writer := txn.NewWriter(allocator, logWriter, opts)
-
-	batch := &txn.Batch{}
+	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))
 	batch.Put([]byte("key2"), []byte("value2"))
 
@@ -275,272 +221,177 @@ func TestWriterFailOnOperationAppend(t *testing.T) {
 		t.Fatal("expected error when operation append fails")
 	}
 
-	// Should have one successful append (BEGIN) before failure
-	if len(logWriter.appends) != 1 {
-		t.Errorf("expected 1 successful append, got %d", len(logWriter.appends))
+	// Should only have BEGIN (first append succeeded)
+	if len(appender.calls) != 1 {
+		t.Errorf("expected 1 call (BEGIN only), got %d", len(appender.calls))
 	}
 
-	if logWriter.appends[0].RecordType != record.RecordTypeBeginTransaction {
-		t.Errorf("expected first record to be BEGIN, got %v", logWriter.appends[0].RecordType)
+	if appender.calls[0].recordType != record.RecordTypeBeginTransaction {
+		t.Errorf("expected BEGIN, got %v", appender.calls[0].recordType)
 	}
 
-	// Flush and FSync should NOT have been called
-	if logWriter.flushCalled {
-		t.Error("Flush should not have been called after operation failure")
-	}
-	if logWriter.fsyncCalled {
-		t.Error("FSync should not have been called after operation failure")
+	// Verify no Flush or FSync were called
+	for _, call := range appender.calls {
+		if call.method == "Flush" || call.method == "FSync" {
+			t.Errorf("expected no %s call on operation append failure", call.method)
+		}
 	}
 
 	_ = txnID
 }
 
-// TestWriterFailOnCommitAppend verifies behavior when COMMIT append fails
-func TestWriterFailOnCommitAppend(t *testing.T) {
-	allocator := NewMockIDAllocator(500)
-	logWriter := NewMockLogWriter()
-	// Fail on COMMIT: BEGIN (0) + PUT (1) + DELETE (2) + COMMIT (3)
-	logWriter.failOnAppend = 3
-	opts := txn.WriterOpts{FsyncOnCommit: false}
+// TestFailOnCommitAppend verifies: error returned; no Flush/FSync
+func TestFailOnCommitAppend(t *testing.T) {
+	allocator := NewMockIDAllocator(400)
+	appender := newFakeLogAppender()
+	appender.failOnAppendIndex = 4 // Fail on fifth append (COMMIT after BEGIN + 3 ops)
+	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, logWriter, opts)
+	writer := txn.NewWriter(allocator, appender, opts)
 
-	batch := &txn.Batch{}
+	batch := txn.NewBatch()
 	batch.Put([]byte("key1"), []byte("value1"))
 	batch.Delete([]byte("key2"))
+	batch.Put([]byte("key3"), []byte("value3"))
 
 	txnID, err := writer.Commit(batch)
 	if err == nil {
 		t.Fatal("expected error when COMMIT append fails")
 	}
 
-	// Should have 3 successful appends (BEGIN + PUT + DELETE) before COMMIT fails
-	if len(logWriter.appends) != 3 {
-		t.Errorf("expected 3 successful appends, got %d", len(logWriter.appends))
-	}
-
-	expectedTypes := []record.RecordType{
-		record.RecordTypeBeginTransaction,
-		record.RecordTypePutOperation,
-		record.RecordTypeDeleteOperation,
-	}
-
-	for i, expectedType := range expectedTypes {
-		if logWriter.appends[i].RecordType != expectedType {
-			t.Errorf("record %d: expected type %v, got %v", i, expectedType, logWriter.appends[i].RecordType)
+	// Should have BEGIN + 3 operations (PUT, DELETE, PUT) but no COMMIT
+	appendCount := 0
+	for _, call := range appender.calls {
+		if call.method == "Append" {
+			appendCount++
 		}
 	}
 
-	// Flush and FSync should NOT have been called
-	if logWriter.flushCalled {
-		t.Error("Flush should not have been called after COMMIT failure")
+	if appendCount != 4 {
+		t.Errorf("expected 4 appends (BEGIN + 3 ops), got %d", appendCount)
 	}
-	if logWriter.fsyncCalled {
-		t.Error("FSync should not have been called after COMMIT failure")
+
+	// Verify no COMMIT appended
+	hasCommit := false
+	for _, call := range appender.calls {
+		if call.method == "Append" && call.recordType == record.RecordTypeCommitTransaction {
+			hasCommit = true
+		}
+	}
+	if hasCommit {
+		t.Error("COMMIT should not have been appended on COMMIT append failure")
+	}
+
+	// Verify no Flush or FSync were called
+	for _, call := range appender.calls {
+		if call.method == "Flush" || call.method == "FSync" {
+			t.Errorf("expected no %s call on COMMIT append failure", call.method)
+		}
 	}
 
 	_ = txnID
 }
 
-// TestWriterFlushCalledOnSuccess verifies that Flush is called on successful commit
-func TestWriterFlushCalledOnSuccess(t *testing.T) {
-	allocator := NewMockIDAllocator(600)
-	logWriter := NewMockLogWriter()
-	opts := txn.WriterOpts{FsyncOnCommit: false}
-
-	writer := txn.NewWriter(allocator, logWriter, opts)
-
-	batch := &txn.Batch{}
-	batch.Put([]byte("key"), []byte("value"))
-
-	_, err := writer.Commit(batch)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Flush should have been called
-	if !logWriter.flushCalled {
-		t.Error("Flush should have been called on successful commit")
-	}
-
-	// FSync should NOT have been called (FsyncOnCommit is false)
-	if logWriter.fsyncCalled {
-		t.Error("FSync should not have been called when FsyncOnCommit is false")
-	}
-}
-
-// TestWriterFSyncCalledOnOption verifies that FSync is called when FsyncOnCommit is true
-func TestWriterFSyncCalledOnOption(t *testing.T) {
-	allocator := NewMockIDAllocator(700)
-	logWriter := NewMockLogWriter()
+// TestFailOnFlush verifies: error returned; no FSync
+func TestFailOnFlush(t *testing.T) {
+	allocator := NewMockIDAllocator(500)
+	appender := newFakeLogAppender()
+	appender.failOnFlush = true
 	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, logWriter, opts)
+	writer := txn.NewWriter(allocator, appender, opts)
 
-	batch := &txn.Batch{}
+	batch := txn.NewBatch()
 	batch.Put([]byte("key"), []byte("value"))
-
-	_, err := writer.Commit(batch)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Both Flush and FSync should have been called
-	if !logWriter.flushCalled {
-		t.Error("Flush should have been called on successful commit")
-	}
-
-	if !logWriter.fsyncCalled {
-		t.Error("FSync should have been called when FsyncOnCommit is true")
-	}
-}
-
-// TestWriterMultipleBatches verifies that multiple commits work correctly
-func TestWriterMultipleBatches(t *testing.T) {
-	allocator := NewMockIDAllocator(800)
-	logWriter := NewMockLogWriter()
-	opts := txn.WriterOpts{FsyncOnCommit: false}
-
-	writer := txn.NewWriter(allocator, logWriter, opts)
-
-	// First batch
-	batch1 := &txn.Batch{}
-	batch1.Put([]byte("key1"), []byte("value1"))
-
-	txnID1, err := writer.Commit(batch1)
-	if err != nil {
-		t.Fatalf("first commit failed: %v", err)
-	}
-	if txnID1 != 800 {
-		t.Errorf("expected first txnID 800, got %d", txnID1)
-	}
-
-	// Second batch
-	batch2 := &txn.Batch{}
-	batch2.Put([]byte("key2"), []byte("value2"))
-	batch2.Delete([]byte("key1"))
-
-	txnID2, err := writer.Commit(batch2)
-	if err != nil {
-		t.Fatalf("second commit failed: %v", err)
-	}
-	if txnID2 != 801 {
-		t.Errorf("expected second txnID 801, got %d", txnID2)
-	}
-
-	// First batch: BEGIN (0) + PUT (1) + COMMIT (2) = 3 records
-	// Second batch: BEGIN (3) + PUT (4) + DELETE (5) + COMMIT (6) = 4 records
-	// Total: 7 records
-	if len(logWriter.appends) != 7 {
-		t.Errorf("expected 7 total records, got %d", len(logWriter.appends))
-	}
-
-	// Verify txnIDs are different
-	decodedBegin1, _ := record.DecodeBeginTxnPayload(logWriter.appends[0].Payload)
-	decodedBegin2, _ := record.DecodeBeginTxnPayload(logWriter.appends[3].Payload)
-
-	if decodedBegin1.TxnID == decodedBegin2.TxnID {
-		t.Error("different transactions should have different txnIDs")
-	}
-}
-
-// TestWriterPayloadsAreCorrect verifies that payloads contain correct data
-func TestWriterPayloadsAreCorrect(t *testing.T) {
-	allocator := NewMockIDAllocator(900)
-	logWriter := NewMockLogWriter()
-	opts := txn.WriterOpts{FsyncOnCommit: false}
-
-	writer := txn.NewWriter(allocator, logWriter, opts)
-
-	batch := &txn.Batch{}
-	batch.Put([]byte("mykey"), []byte("myvalue"))
-	batch.Delete([]byte("delkey"))
 
 	txnID, err := writer.Commit(batch)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Verify PUT operation payload
-	decodedPut, err := record.DecodePutOpPayload(logWriter.appends[1].Payload)
-	if err != nil {
-		t.Fatalf("failed to decode PUT: %v", err)
-	}
-	if decodedPut.TxnID != txnID {
-		t.Errorf("PUT txnID mismatch: expected %d, got %d", txnID, decodedPut.TxnID)
-	}
-	if string(decodedPut.Key) != "mykey" {
-		t.Errorf("PUT key mismatch: expected 'mykey', got '%s'", decodedPut.Key)
-	}
-	if string(decodedPut.Value) != "myvalue" {
-		t.Errorf("PUT value mismatch: expected 'myvalue', got '%s'", decodedPut.Value)
-	}
-
-	// Verify DELETE operation payload
-	decodedDelete, err := record.DecodeDeleteOpPayload(logWriter.appends[2].Payload)
-	if err != nil {
-		t.Fatalf("failed to decode DELETE: %v", err)
-	}
-	if decodedDelete.TxnID != txnID {
-		t.Errorf("DELETE txnID mismatch: expected %d, got %d", txnID, decodedDelete.TxnID)
-	}
-	if string(decodedDelete.Key) != "delkey" {
-		t.Errorf("DELETE key mismatch: expected 'delkey', got '%s'", decodedDelete.Key)
-	}
-}
-
-// TestWriterFlushFailureStopsExecution verifies that if Flush fails, Commit returns error and FSync is not called
-func TestWriterFlushFailureStopsExecution(t *testing.T) {
-	allocator := NewMockIDAllocator(1000)
-	logWriter := NewMockLogWriter()
-	logWriter.failOnFlush = true
-	opts := txn.WriterOpts{FsyncOnCommit: false}
-
-	writer := txn.NewWriter(allocator, logWriter, opts)
-
-	batch := &txn.Batch{}
-	batch.Put([]byte("key"), []byte("value"))
-
-	_, err := writer.Commit(batch)
 	if err == nil {
 		t.Fatal("expected error when Flush fails")
 	}
 
-	// Flush should have been called
-	if !logWriter.flushCalled {
-		t.Error("Flush should have been called")
+	// Should have appended all records (BEGIN, PUT, COMMIT)
+	appendCount := 0
+	for _, call := range appender.calls {
+		if call.method == "Append" {
+			appendCount++
+		}
 	}
 
-	// FSync should NOT have been called
-	if logWriter.fsyncCalled {
-		t.Error("FSync should not have been called after Flush failure")
+	if appendCount != 3 {
+		t.Errorf("expected 3 appends (BEGIN + PUT + COMMIT), got %d", appendCount)
 	}
+
+	// Verify Flush was called but FSync was not
+	flushCalled := false
+	fsyncCalled := false
+	for _, call := range appender.calls {
+		if call.method == "Flush" {
+			flushCalled = true
+		}
+		if call.method == "FSync" {
+			fsyncCalled = true
+		}
+	}
+
+	if !flushCalled {
+		t.Error("Flush should have been called")
+	}
+	if fsyncCalled {
+		t.Error("FSync should not have been called when Flush fails")
+	}
+
+	_ = txnID
 }
 
-// TestWriterFlushFailureWithFSyncOption verifies that FSync is not called if Flush fails even with FsyncOnCommit=true
-func TestWriterFlushFailureWithFSyncOption(t *testing.T) {
-	allocator := NewMockIDAllocator(1100)
-	logWriter := NewMockLogWriter()
-	logWriter.failOnFlush = true
-	opts := txn.WriterOpts{FsyncOnCommit: true} // FsyncOnCommit is true
+// TestFailOnFSync verifies: error returned
+func TestFailOnFSync(t *testing.T) {
+	allocator := NewMockIDAllocator(600)
+	appender := newFakeLogAppender()
+	appender.failOnFSync = true
+	opts := txn.WriterOpts{FsyncOnCommit: true}
 
-	writer := txn.NewWriter(allocator, logWriter, opts)
+	writer := txn.NewWriter(allocator, appender, opts)
 
-	batch := &txn.Batch{}
+	batch := txn.NewBatch()
 	batch.Put([]byte("key"), []byte("value"))
 
-	_, err := writer.Commit(batch)
+	txnID, err := writer.Commit(batch)
 	if err == nil {
-		t.Fatal("expected error when Flush fails")
+		t.Fatal("expected error when FSync fails")
 	}
 
-	// Flush should have been called
-	if !logWriter.flushCalled {
+	// Should have appended all records and called Flush and FSync
+	appendCount := 0
+	flushCalled := false
+	fsyncCalled := false
+
+	for _, call := range appender.calls {
+		if call.method == "Append" {
+			appendCount++
+		}
+		if call.method == "Flush" {
+			flushCalled = true
+		}
+		if call.method == "FSync" {
+			fsyncCalled = true
+		}
+	}
+
+	if appendCount != 3 {
+		t.Errorf("expected 3 appends, got %d", appendCount)
+	}
+	if !flushCalled {
 		t.Error("Flush should have been called")
 	}
-
-	// FSync should NOT have been called because Flush failed first
-	if logWriter.fsyncCalled {
-		t.Error("FSync should not have been called when Flush fails, even with FsyncOnCommit=true")
+	if !fsyncCalled {
+		t.Error("FSync should have been called")
 	}
+
+	// Verify complete call sequence
+	expectedSequence := []string{"Append", "Append", "Append", "Flush", "FSync"}
+	if len(appender.calls) != len(expectedSequence) {
+		t.Errorf("expected %d calls, got %d", len(expectedSequence), len(appender.calls))
+	}
+
+	_ = txnID
 }

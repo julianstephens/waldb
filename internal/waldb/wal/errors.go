@@ -36,7 +36,7 @@ func (e *SegmentWriteError) Error() string { return e.Err.Error() }
 func (e *SegmentWriteError) Unwrap() error { return e.Err }
 
 var (
-	ErrWALClosed       = errors.New("wal: manager closed")
+	ErrWALClosed       = errors.New("wal: log closed")
 	ErrNoSegments      = errors.New("wal: no segments")
 	ErrSegmentNotFound = errors.New("wal: segment not found")
 	ErrSegmentList     = errors.New("wal: list segments failed")
@@ -49,10 +49,9 @@ var (
 	ErrInvalidWALDir   = errors.New("wal: invalid wal dir")
 )
 
-// ManagerError wraps manager-level failures with context.
-// It preserves a stable sentinel in Err so callers can errors.Is against it.
-type ManagerError struct {
-	Err error // one of the sentinel errors above
+// LogError wraps log-level failures with context.
+type LogError struct {
+	Err error
 
 	Dir   string
 	SegID uint64
@@ -64,17 +63,15 @@ type ManagerError struct {
 	Cause error
 }
 
-func (e *ManagerError) Error() string {
-	// Keep it short; callers can inspect fields if they need more.
+func (e *LogError) Error() string {
 	if e.Op == "" {
 		return e.Err.Error()
 	}
 	return fmt.Sprintf("%s: %s", e.Op, e.Err.Error())
 }
 
-func (e *ManagerError) Unwrap() error {
+func (e *LogError) Unwrap() error {
 	return e.Err
 }
 
-// CauseErr returns the underlying cause (not used by errors.Is).
-func (e *ManagerError) CauseErr() error { return e.Cause }
+func (e *LogError) CauseErr() error { return e.Cause }

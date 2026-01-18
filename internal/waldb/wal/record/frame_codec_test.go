@@ -6,25 +6,24 @@ import (
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
-	"github.com/julianstephens/waldb/internal/waldb/wal"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
-func TestEncode(t *testing.T) {
+func TestEncodeFrame(t *testing.T) {
 	// Test encoding a record
 	payload := []byte("test-payload")
-	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	encoded, err := record.EncodeFrame(record.RecordTypePutOperation, payload)
 	tst.RequireNoError(t, err)
 
 	// Verify it can be decoded
-	rec, err := record.Decode(encoded)
+	rec, err := record.DecodeFrame(encoded)
 	tst.RequireNoError(t, err)
 
 	tst.RequireDeepEqual(t, rec.Record.Type, record.RecordTypePutOperation)
 	tst.RequireDeepEqual(t, rec.Record.Payload, payload)
 }
 
-func TestEncodeMultiple(t *testing.T) {
+func TestEncodeFrameMultiple(t *testing.T) {
 	// Test encoding multiple records
 	records := []struct {
 		typ     record.RecordType
@@ -40,7 +39,7 @@ func TestEncodeMultiple(t *testing.T) {
 
 	// Encode all records
 	for i, rec := range records {
-		encoded, err := record.Encode(rec.typ, rec.payload)
+		encoded, err := record.EncodeFrame(rec.typ, rec.payload)
 		if err != nil {
 			t.Fatalf("record %d: unexpected error encoding: %v", i, err)
 		}
@@ -48,7 +47,7 @@ func TestEncodeMultiple(t *testing.T) {
 	}
 
 	// Read them all back
-	reader := wal.NewRecordReader(bytes.NewReader(buf.Bytes()))
+	reader := record.NewFrameReader(bytes.NewReader(buf.Bytes()))
 	for i, expected := range records {
 		rec, err := reader.Next()
 		if err != nil {
@@ -64,12 +63,12 @@ func TestEncodeMultiple(t *testing.T) {
 	}
 }
 
-func TestEncodeInvalidLength(t *testing.T) {
+func TestEncodeFrameInvalidLength(t *testing.T) {
 	// Test that Encode rejects payloads larger than MaxRecordSize
 	// Create a payload larger than MaxRecordSize
 	largePayload := make([]byte, record.MaxRecordSize+1)
 
-	_, err := record.Encode(record.RecordTypePutOperation, largePayload)
+	_, err := record.EncodeFrame(record.RecordTypePutOperation, largePayload)
 	if err == nil {
 		t.Fatal("expected error for oversized payload")
 	}
@@ -83,15 +82,15 @@ func TestEncodeInvalidLength(t *testing.T) {
 	}
 }
 
-func TestEncodeEmptyPayload(t *testing.T) {
+func TestEncodeFrameEmptyPayload(t *testing.T) {
 	// Test encoding with empty payload
-	encoded, err := record.Encode(record.RecordTypeBeginTransaction, []byte{})
+	encoded, err := record.EncodeFrame(record.RecordTypeBeginTransaction, []byte{})
 	if err != nil {
 		t.Fatalf("unexpected error encoding empty payload: %v", err)
 	}
 
 	// Decode it back
-	rec, err := record.Decode(encoded)
+	rec, err := record.DecodeFrame(encoded)
 	if err != nil {
 		t.Fatalf("unexpected error decoding record: %v", err)
 	}
@@ -104,12 +103,12 @@ func TestEncodeEmptyPayload(t *testing.T) {
 	}
 }
 
-func TestEncodeByteFormat(t *testing.T) {
+func TestEncodeFrameByteFormat(t *testing.T) {
 	// Test that Encode produces bytes in correct wire format:
 	// [4-byte LE length][1-byte type][N-byte payload][4-byte LE CRC]
 	// where length = 1 + len(payload)
 	payload := []byte("hello")
-	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	encoded, err := record.EncodeFrame(record.RecordTypePutOperation, payload)
 	if err != nil {
 		t.Fatalf("unexpected error encoding: %v", err)
 	}
@@ -148,7 +147,7 @@ func TestEncodeByteFormat(t *testing.T) {
 	}
 
 	// Verify the CRC is correct by decoding and checking
-	rec, err := record.Decode(encoded)
+	rec, err := record.DecodeFrame(encoded)
 	if err != nil {
 		t.Fatalf("unexpected error decoding: %v", err)
 	}
@@ -165,16 +164,16 @@ func TestEncodeByteFormat(t *testing.T) {
 	}
 }
 
-func TestDecode(t *testing.T) {
+func TestDecodeFrame(t *testing.T) {
 	// Test decoding a record
 	payload := []byte("test-payload")
-	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	encoded, err := record.EncodeFrame(record.RecordTypePutOperation, payload)
 	if err != nil {
 		t.Fatalf("unexpected error encoding record: %v", err)
 	}
 
 	// Decode it
-	rec, err := record.Decode(encoded)
+	rec, err := record.DecodeFrame(encoded)
 	if err != nil {
 		t.Fatalf("unexpected error decoding record: %v", err)
 	}
@@ -187,9 +186,9 @@ func TestDecode(t *testing.T) {
 	}
 }
 
-func TestDecodeInvalidData(t *testing.T) {
+func TestDecodeFrameInvalidData(t *testing.T) {
 	// Test decoding truncated data
-	_, err := record.Decode([]byte{0x05, 0x00})
+	_, err := record.DecodeFrame([]byte{0x05, 0x00})
 	if err == nil {
 		t.Fatal("expected error for truncated data")
 	}
@@ -203,9 +202,9 @@ func TestDecodeInvalidData(t *testing.T) {
 	}
 }
 
-func TestDecodeTooShort(t *testing.T) {
+func TestDecodeFrameTooShort(t *testing.T) {
 	// Test decoding data shorter than minimum header + crc
-	_, err := record.Decode([]byte{0x01})
+	_, err := record.DecodeFrame([]byte{0x01})
 	if err == nil {
 		t.Fatal("expected error for data too short")
 	}
@@ -228,10 +227,10 @@ func TestDecodeTooShort(t *testing.T) {
 	}
 }
 
-func TestDecodeZeroLength(t *testing.T) {
+func TestDecodeFrameZeroLength(t *testing.T) {
 	// Test decoding with zero record length
 	data := []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	_, err := record.Decode(data)
+	_, err := record.DecodeFrame(data)
 	if err == nil {
 		t.Fatal("expected error for zero record length")
 	}
@@ -254,14 +253,14 @@ func TestDecodeZeroLength(t *testing.T) {
 	}
 }
 
-func TestDecodeTooLarge(t *testing.T) {
+func TestDecodeFrameTooLarge(t *testing.T) {
 	// Test decoding with record length > MaxRecordSize
 	// Encode length as 17MB (16MB + 1)
 	largeLen := uint32(record.MaxRecordSize + 1)
 	data := make([]byte, 8)
 	binary.LittleEndian.PutUint32(data[:4], largeLen)
 
-	_, err := record.Decode(data)
+	_, err := record.DecodeFrame(data)
 	if err == nil {
 		t.Fatal("expected error for oversized record length")
 	}
@@ -284,7 +283,7 @@ func TestDecodeTooLarge(t *testing.T) {
 	}
 }
 
-func TestDecodeUnknownType(t *testing.T) {
+func TestDecodeFrameUnknownType(t *testing.T) {
 	// Test decoding with RecordTypeUnknown
 	// Create a record with type 0 (Unknown)
 	data := []byte{
@@ -294,7 +293,7 @@ func TestDecodeUnknownType(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, // crc
 	}
 
-	_, err := record.Decode(data)
+	_, err := record.DecodeFrame(data)
 	if err == nil {
 		t.Fatal("expected error for unknown record type")
 	}
@@ -317,7 +316,7 @@ func TestDecodeUnknownType(t *testing.T) {
 	}
 }
 
-func TestDecodeInvalidType(t *testing.T) {
+func TestDecodeFrameInvalidType(t *testing.T) {
 	// Test decoding with invalid record type (beyond DeleteOperation)
 	// RecordTypeDeleteOperation = 4, so 5 is invalid
 	data := []byte{
@@ -327,7 +326,7 @@ func TestDecodeInvalidType(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, // crc
 	}
 
-	_, err := record.Decode(data)
+	_, err := record.DecodeFrame(data)
 	if err == nil {
 		t.Fatal("expected error for invalid record type")
 	}
@@ -350,10 +349,10 @@ func TestDecodeInvalidType(t *testing.T) {
 	}
 }
 
-func TestDecodeChecksumMismatch(t *testing.T) {
+func TestDecodeFrameChecksumMismatch(t *testing.T) {
 	// Test decoding with mismatched checksum
 	payload := []byte("test")
-	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	encoded, err := record.EncodeFrame(record.RecordTypePutOperation, payload)
 	if err != nil {
 		t.Fatalf("unexpected error encoding: %v", err)
 	}
@@ -361,7 +360,7 @@ func TestDecodeChecksumMismatch(t *testing.T) {
 	// Corrupt the CRC bytes (last 4 bytes)
 	encoded[len(encoded)-1] ^= 0xFF
 
-	_, err = record.Decode(encoded)
+	_, err = record.DecodeFrame(encoded)
 	if err == nil {
 		t.Fatal("expected error for checksum mismatch")
 	}
@@ -384,10 +383,10 @@ func TestDecodeChecksumMismatch(t *testing.T) {
 	}
 }
 
-func TestDecodeExtraData(t *testing.T) {
+func TestDecodeFrameExtraData(t *testing.T) {
 	// Test decoding with extra data beyond expected record length
 	payload := []byte("test")
-	encoded, err := record.Encode(record.RecordTypePutOperation, payload)
+	encoded, err := record.EncodeFrame(record.RecordTypePutOperation, payload)
 	if err != nil {
 		t.Fatalf("unexpected error encoding: %v", err)
 	}
@@ -395,7 +394,7 @@ func TestDecodeExtraData(t *testing.T) {
 	// Append extra bytes
 	encoded = append(encoded, 0xFF, 0xFF)
 
-	_, err = record.Decode(encoded)
+	_, err = record.DecodeFrame(encoded)
 	if err == nil {
 		t.Fatal("expected error for extra data")
 	}
@@ -418,7 +417,7 @@ func TestDecodeExtraData(t *testing.T) {
 	}
 }
 
-func TestDecodeValidAllTypes(t *testing.T) {
+func TestDecodeFrameValidAllTypes(t *testing.T) {
 	// Test decoding valid records for all valid types
 	types := []record.RecordType{
 		record.RecordTypeBeginTransaction,
@@ -429,12 +428,12 @@ func TestDecodeValidAllTypes(t *testing.T) {
 	payload := []byte("test-payload")
 
 	for _, recordType := range types {
-		encoded, err := record.Encode(recordType, payload)
+		encoded, err := record.EncodeFrame(recordType, payload)
 		if err != nil {
 			t.Fatalf("unexpected error encoding type %v: %v", recordType, err)
 		}
 
-		rec, err := record.Decode(encoded)
+		rec, err := record.DecodeFrame(encoded)
 		if err != nil {
 			t.Fatalf("unexpected error decoding type %v: %v", recordType, err)
 		}
@@ -448,7 +447,7 @@ func TestDecodeValidAllTypes(t *testing.T) {
 	}
 }
 
-func TestDecodeRoundtrip(t *testing.T) {
+func TestDecodeFrameRoundtrip(t *testing.T) {
 	// Test encode/decode roundtrip for various payloads
 	testCases := []struct {
 		name    string
@@ -462,12 +461,12 @@ func TestDecodeRoundtrip(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		encoded, err := record.Encode(tc.typ, tc.payload)
+		encoded, err := record.EncodeFrame(tc.typ, tc.payload)
 		if err != nil {
 			t.Fatalf("%s: unexpected error encoding: %v", tc.name, err)
 		}
 
-		rec, err := record.Decode(encoded)
+		rec, err := record.DecodeFrame(encoded)
 		if err != nil {
 			t.Fatalf("%s: unexpected error decoding: %v", tc.name, err)
 		}

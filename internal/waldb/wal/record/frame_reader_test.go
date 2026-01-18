@@ -1,4 +1,4 @@
-package wal_test
+package record_test
 
 import (
 	"bytes"
@@ -7,7 +7,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/julianstephens/waldb/internal/waldb/wal"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
@@ -33,7 +32,7 @@ func TestNextRoundtripBeginTransaction(t *testing.T) {
 	payload := []byte("transaction-id-123")
 	encoded := encodeRecord(record.RecordTypeBeginTransaction, payload)
 
-	reader := wal.NewRecordReader(bytes.NewReader(encoded))
+	reader := record.NewFrameReader(bytes.NewReader(encoded))
 	rec, err := reader.Next()
 
 	if err != nil {
@@ -51,7 +50,7 @@ func TestNextRoundtripCommitTransaction(t *testing.T) {
 	payload := []byte("commit-data")
 	encoded := encodeRecord(record.RecordTypeCommitTransaction, payload)
 
-	reader := wal.NewRecordReader(bytes.NewReader(encoded))
+	reader := record.NewFrameReader(bytes.NewReader(encoded))
 	rec, err := reader.Next()
 
 	if err != nil {
@@ -69,7 +68,7 @@ func TestNextRoundtripPutOperation(t *testing.T) {
 	payload := []byte("key=value")
 	encoded := encodeRecord(record.RecordTypePutOperation, payload)
 
-	reader := wal.NewRecordReader(bytes.NewReader(encoded))
+	reader := record.NewFrameReader(bytes.NewReader(encoded))
 	rec, err := reader.Next()
 
 	if err != nil {
@@ -87,7 +86,7 @@ func TestNextRoundtripDeleteOperation(t *testing.T) {
 	payload := []byte("key-to-delete")
 	encoded := encodeRecord(record.RecordTypeDeleteOperation, payload)
 
-	reader := wal.NewRecordReader(bytes.NewReader(encoded))
+	reader := record.NewFrameReader(bytes.NewReader(encoded))
 	rec, err := reader.Next()
 
 	if err != nil {
@@ -112,7 +111,7 @@ func TestNextTruncatedTailDetection(t *testing.T) {
 		N: int64(len(encoded) - 2),
 	}
 
-	reader := wal.NewRecordReader(&limitedReader)
+	reader := record.NewFrameReader(&limitedReader)
 	_, err := reader.Next()
 
 	if err == nil {
@@ -142,7 +141,7 @@ func TestNextTruncatedLengthDetection(t *testing.T) {
 	// Create a buffer with only 2 bytes (incomplete length header)
 	buf := bytes.NewReader([]byte{0x05, 0x00})
 
-	reader := wal.NewRecordReader(buf)
+	reader := record.NewFrameReader(buf)
 	_, err := reader.Next()
 
 	if err == nil {
@@ -176,7 +175,7 @@ func TestNextChecksumMismatchDetection(t *testing.T) {
 	copy(corrupted, encoded)
 	corrupted[len(corrupted)-1] ^= 0xFF // Flip bits in last byte of checksum
 
-	reader := wal.NewRecordReader(bytes.NewReader(corrupted))
+	reader := record.NewFrameReader(bytes.NewReader(corrupted))
 	_, err := reader.Next()
 
 	if err == nil {
@@ -206,7 +205,7 @@ func TestNextInvalidLengthDetection(t *testing.T) {
 	// Write length of 0 (invalid)
 	_ = binary.Write(buf, binary.LittleEndian, uint32(0))
 
-	reader := wal.NewRecordReader(buf)
+	reader := record.NewFrameReader(buf)
 	_, err := reader.Next()
 
 	if err == nil {
@@ -236,7 +235,7 @@ func TestNextTooLargeLengthDetection(t *testing.T) {
 	// Write length larger than MaxRecordSize
 	_ = binary.Write(buf, binary.LittleEndian, uint32(record.MaxRecordSize+1))
 
-	reader := wal.NewRecordReader(buf)
+	reader := record.NewFrameReader(buf)
 	_, err := reader.Next()
 
 	if err == nil {
@@ -266,7 +265,7 @@ func TestNextInvalidTypeDetection(t *testing.T) {
 	payload := []byte("test")
 	encoded := encodeRecord(record.RecordTypeUnknown, payload)
 
-	reader := wal.NewRecordReader(bytes.NewReader(encoded))
+	reader := record.NewFrameReader(bytes.NewReader(encoded))
 	_, err := reader.Next()
 
 	if err == nil {
@@ -308,7 +307,7 @@ func TestNextMultipleRecords(t *testing.T) {
 		buf.Write(encodeRecord(rec.typ, rec.payload))
 	}
 
-	reader := wal.NewRecordReader(buf)
+	reader := record.NewFrameReader(buf)
 	for i, expected := range records {
 		rec, err := reader.Next()
 		if err != nil {
@@ -325,7 +324,7 @@ func TestNextMultipleRecords(t *testing.T) {
 
 func TestNextEOF(t *testing.T) {
 	// Test reading from empty stream should return io.EOF exactly
-	reader := wal.NewRecordReader(bytes.NewReader([]byte{}))
+	reader := record.NewFrameReader(bytes.NewReader([]byte{}))
 	_, err := reader.Next()
 
 	if err != io.EOF {
@@ -336,7 +335,7 @@ func TestNextEOF(t *testing.T) {
 func TestNextPartialHeaderOneByte(t *testing.T) {
 	// Test reading 1 byte then EOF - should be truncated
 	buf := bytes.NewReader([]byte{0x05})
-	reader := wal.NewRecordReader(buf)
+	reader := record.NewFrameReader(buf)
 	_, err := reader.Next()
 
 	if err == nil {
@@ -364,7 +363,7 @@ func TestNextPartialHeaderOneByte(t *testing.T) {
 func TestNextPartialHeaderThreeBytes(t *testing.T) {
 	// Test reading 3 bytes then EOF - should be truncated
 	buf := bytes.NewReader([]byte{0x05, 0x00, 0x00})
-	reader := wal.NewRecordReader(buf)
+	reader := record.NewFrameReader(buf)
 	_, err := reader.Next()
 
 	if err == nil {
@@ -407,7 +406,7 @@ func TestOffset(t *testing.T) {
 		buf.Write(encodeRecord(rec.typ, rec.payload))
 	}
 
-	reader := wal.NewRecordReader(buf)
+	reader := record.NewFrameReader(buf)
 
 	// Initial offset should be 0
 	if reader.Offset() != 0 {

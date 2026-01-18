@@ -9,12 +9,12 @@ import (
 	"github.com/julianstephens/waldb/internal/waldb/wal"
 )
 
-// TestOpenManagerCreatesDirectory tests that OpenManager creates a WAL directory if it doesn't exist
-func TestOpenManagerCreatesDirectory(t *testing.T) {
+// TestOpenLogCreatesDirectory tests that OpenLog creates a WAL directory if it doesn't exist
+func TestOpenLogCreatesDirectory(t *testing.T) {
 	tempDir := t.TempDir()
 	walDir := filepath.Join(tempDir, "new_wal_dir")
 
-	provider, err := wal.OpenManager(walDir, wal.ManagerOpts{})
+	provider, err := wal.OpenLog(walDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 	tst.AssertNotNil(t, provider, "expected non-nil provider")
 
@@ -23,11 +23,11 @@ func TestOpenManagerCreatesDirectory(t *testing.T) {
 	tst.RequireNoError(t, err)
 }
 
-// TestOpenManagerCreatesFirstSegment tests that OpenManager creates the first segment
-func TestOpenManagerCreatesFirstSegment(t *testing.T) {
+// TestOpenLogCreatesFirstSegment tests that OpenLog creates the first segment
+func TestOpenLogCreatesFirstSegment(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	// Should have exactly one segment
@@ -36,16 +36,16 @@ func TestOpenManagerCreatesFirstSegment(t *testing.T) {
 	tst.RequireDeepEqual(t, segIds[0], uint64(1))
 }
 
-// TestOpenManagerDiscoverExistingSegments tests that OpenManager discovers existing segments
-func TestOpenManagerDiscoverExistingSegments(t *testing.T) {
+// TestOpenLogDiscoverExistingSegments tests that OpenLog discovers existing segments
+func TestOpenLogDiscoverExistingSegments(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create first provider
-	_, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	_, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	// Open again and verify segments are discovered
-	provider2, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	segIds := provider2.SegmentIDs()
@@ -57,7 +57,7 @@ func TestOpenManagerDiscoverExistingSegments(t *testing.T) {
 func TestSegmentIDs(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	segIds := provider.SegmentIDs()
@@ -69,7 +69,7 @@ func TestSegmentIDs(t *testing.T) {
 func TestOpenSegmentExistingSegment(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	// Open the existing segment 1
@@ -85,7 +85,7 @@ func TestOpenSegmentExistingSegment(t *testing.T) {
 func TestOpenSegmentNonExistent(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	// Try to open non-existent segment
@@ -93,30 +93,30 @@ func TestOpenSegmentNonExistent(t *testing.T) {
 	tst.AssertTrue(t, err != nil, "expected error opening non-existent segment")
 }
 
-// TestOpenManagerInvalidPath tests error handling for invalid directory
-func TestOpenManagerInvalidPath(t *testing.T) {
+// TestOpenLogInvalidPath tests error handling for invalid directory
+func TestOpenLogInvalidPath(t *testing.T) {
 	// Try to open with a path that has a non-existent parent
 	invalidPath := "/nonexistent/path/to/wal/that/cannot/be/created/waldb"
 
-	_, err := wal.OpenManager(invalidPath, wal.ManagerOpts{})
+	_, err := wal.OpenLog(invalidPath, wal.LogOpts{})
 	if err == nil {
-		t.Fatal("expected error opening manager with invalid path")
+		t.Fatal("expected error opening log with invalid path")
 	}
 }
 
-// TestMultipleOpenManagerInstances tests opening multiple managers on same directory
-func TestMultipleOpenManagerInstances(t *testing.T) {
+// TestMultipleOpenLogInstances tests opening multiple logs on same directory
+func TestMultipleOpenLogInstances(t *testing.T) {
 	tempDir := t.TempDir()
 
-	// Open first manager
-	provider1, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	// Open first log
+	provider1, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	segIds1 := provider1.SegmentIDs()
 	tst.RequireDeepEqual(t, len(segIds1), 1)
 
-	// Open second manager on same directory
-	provider2, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	// Open second log on same directory
+	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	segIds2 := provider2.SegmentIDs()
@@ -130,7 +130,7 @@ func TestMultipleOpenManagerInstances(t *testing.T) {
 func TestSegmentReaderSeekTo(t *testing.T) {
 	tempDir := t.TempDir()
 
-	provider, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	provider, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	reader, err := provider.OpenSegment(1)
@@ -146,14 +146,14 @@ func TestSegmentProviderPersists(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Open first provider
-	provider1, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	provider1, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	segIds1 := provider1.SegmentIDs()
 	initialSegId := segIds1[0]
 
 	// Open second provider on same directory
-	provider2, err := wal.OpenManager(tempDir, wal.ManagerOpts{})
+	provider2, err := wal.OpenLog(tempDir, wal.LogOpts{})
 	tst.RequireNoError(t, err)
 
 	segIds2 := provider2.SegmentIDs()

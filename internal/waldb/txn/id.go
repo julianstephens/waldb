@@ -54,6 +54,9 @@ func (a *CounterAllocator) Peek() uint64 {
 // SetNext sets the next ID to be allocated.
 // Intended for initialization at Open(), and (optionally) for repair workflows.
 func (a *CounterAllocator) SetNext(next uint64) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if next < 1 {
 		return &TxnIDError{
 			Err:  ErrInvalidTxnID,
@@ -68,8 +71,7 @@ func (a *CounterAllocator) SetNext(next uint64) error {
 			Want: a.next,
 		}
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
+
 	a.next = next
 	return nil
 }
