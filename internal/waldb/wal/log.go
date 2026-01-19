@@ -185,7 +185,17 @@ func (m *Log) Append(rt record.RecordType, payload []byte) (offset int64, err er
 		err = wrapLogErr("append_record", ErrAppendFailed, m.dir, m.activeSegId, err2)
 		return
 	}
-	m.logger.Debug("appended record to segment", "seg", m.activeSegId, "record_type", uint8(rt), "offset", offset, "payload_size", len(payload))
+	m.logger.Debug(
+		"appended record to segment",
+		"seg",
+		m.activeSegId,
+		"record_type",
+		uint8(rt),
+		"offset",
+		offset,
+		"payload_size",
+		len(payload),
+	)
 
 	return
 }

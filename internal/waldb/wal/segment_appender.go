@@ -64,14 +64,14 @@ func (sw *SegmentAppender) Append(recordType record.RecordType, payload []byte) 
 	defer sw.mu.Unlock()
 
 	if sw.closed {
-		err = &SegmentWriteError{
+		err = &SegmentAppendError{
 			Err:    ErrClosedWriter,
 			Offset: sw.currOffset,
 		}
 		return
 	}
 	if err2 := record.ValidateRecordFrame(recordType, payload); err2 != nil {
-		err = &SegmentWriteError{
+		err = &SegmentAppendError{
 			Err:        ErrInvalidRecord,
 			Cause:      err2,
 			Offset:     sw.currOffset,
@@ -82,7 +82,7 @@ func (sw *SegmentAppender) Append(recordType record.RecordType, payload []byte) 
 
 	framedRecord, err2 := record.EncodeFrame(recordType, payload)
 	if err2 != nil {
-		err = &SegmentWriteError{
+		err = &SegmentAppendError{
 			Err:        ErrInvalidRecord,
 			Cause:      err2,
 			Offset:     sw.currOffset,
@@ -94,7 +94,7 @@ func (sw *SegmentAppender) Append(recordType record.RecordType, payload []byte) 
 
 	n, err2 := sw.writer.Write(framedRecord)
 	if err2 != nil {
-		err = &SegmentWriteError{
+		err = &SegmentAppendError{
 			Err:        ErrAppendFailed,
 			Cause:      err2,
 			Offset:     sw.currOffset,
@@ -106,7 +106,7 @@ func (sw *SegmentAppender) Append(recordType record.RecordType, payload []byte) 
 	}
 
 	if n < len(framedRecord) {
-		err = &SegmentWriteError{
+		err = &SegmentAppendError{
 			Err:        ErrShortWrite,
 			Cause:      io.ErrShortWrite,
 			Offset:     sw.currOffset,
@@ -128,7 +128,7 @@ func (sw *SegmentAppender) Flush() error {
 	defer sw.mu.Unlock()
 
 	if sw.closed {
-		return &SegmentWriteError{
+		return &SegmentAppendError{
 			Err:    ErrClosedWriter,
 			Offset: sw.currOffset,
 		}
@@ -147,7 +147,7 @@ func (sw *SegmentAppender) FSync() error {
 	defer sw.mu.Unlock()
 
 	if sw.closed {
-		return &SegmentWriteError{
+		return &SegmentAppendError{
 			Err:    ErrClosedWriter,
 			Offset: sw.currOffset,
 		}
@@ -158,7 +158,7 @@ func (sw *SegmentAppender) FSync() error {
 	}
 
 	if err := sw.currSegmentFile.Sync(); err != nil {
-		return &SegmentWriteError{
+		return &SegmentAppendError{
 			Err:    ErrSyncFailed,
 			Cause:  err,
 			Offset: sw.currOffset,
@@ -184,7 +184,7 @@ func (sw *SegmentAppender) Close() error {
 	}
 
 	if err := sw.currSegmentFile.Close(); err != nil {
-		return &SegmentWriteError{
+		return &SegmentAppendError{
 			Err:    ErrCloseFailed,
 			Cause:  err,
 			Offset: sw.currOffset,
@@ -199,7 +199,7 @@ func (sw *SegmentAppender) Close() error {
 
 func (sw *SegmentAppender) flush() error {
 	if err := sw.writer.Flush(); err != nil {
-		return &SegmentWriteError{
+		return &SegmentAppendError{
 			Err:    ErrFlushFailed,
 			Cause:  err,
 			Offset: sw.currOffset,

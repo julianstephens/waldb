@@ -24,64 +24,24 @@ type Op struct {
 // ReplayState is an exported alias for the internal replayState
 type ReplayState = replayState
 
-type RecordCtx struct {
-	Offset      int64
-	SegId       uint64
-	DeclaredLen uint32
-	RecordType  record.RecordType
-}
-
-func NewRecordCtx(offset int64, segId uint64, declaredLen uint32, recordType record.RecordType) RecordCtx {
-	return RecordCtx{
-		Offset:      offset,
-		SegId:       segId,
-		DeclaredLen: declaredLen,
-		RecordType:  recordType,
-	}
-}
-
 func NewReplayState(mem *memtable.Table) *ReplayState {
 	return newReplayState(mem)
 }
 
-func (s *ReplayState) OnBegin(payload record.BeginCommitTransactionPayload, ctx RecordCtx) error {
-	internalCtx := recordCtx{
-		offset:      ctx.Offset,
-		segId:       ctx.SegId,
-		declaredLen: ctx.DeclaredLen,
-		recordType:  ctx.RecordType,
-	}
-	return s.onBegin(payload, internalCtx)
+func (s *ReplayState) OnBegin(payload record.BeginCommitTransactionPayload) error {
+	return s.onBegin(payload)
 }
 
-func (s *ReplayState) OnPut(payload record.PutOpPayload, ctx RecordCtx) error {
-	internalCtx := recordCtx{
-		offset:      ctx.Offset,
-		segId:       ctx.SegId,
-		declaredLen: ctx.DeclaredLen,
-		recordType:  ctx.RecordType,
-	}
-	return s.onPut(payload, internalCtx)
+func (s *ReplayState) OnPut(payload record.PutOpPayload) error {
+	return s.onPut(payload)
 }
 
-func (s *ReplayState) OnDel(payload record.DeleteOpPayload, ctx RecordCtx) error {
-	internalCtx := recordCtx{
-		offset:      ctx.Offset,
-		segId:       ctx.SegId,
-		declaredLen: ctx.DeclaredLen,
-		recordType:  ctx.RecordType,
-	}
-	return s.onDel(payload, internalCtx)
+func (s *ReplayState) OnDel(payload record.DeleteOpPayload) error {
+	return s.onDel(payload)
 }
 
-func (s *ReplayState) OnCommit(payload record.BeginCommitTransactionPayload, ctx RecordCtx) error {
-	internalCtx := recordCtx{
-		offset:      ctx.Offset,
-		segId:       ctx.SegId,
-		declaredLen: ctx.DeclaredLen,
-		recordType:  ctx.RecordType,
-	}
-	return s.onCommit(payload, internalCtx)
+func (s *ReplayState) OnCommit(payload record.BeginCommitTransactionPayload) error {
+	return s.onCommit(payload)
 }
 
 // Inflight returns a copy of the inflight transactions with exported field names

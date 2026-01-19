@@ -8,7 +8,8 @@ import (
 )
 
 var (
-	ErrNilKey = errors.New("memtable: nil key")
+	ErrNilKey        = errors.New("memtable: nil key")
+	ErrInvalidOpKind = errors.New("memtable: invalid op kind")
 )
 
 // Entry represents a stored value or a tombstone.
@@ -93,7 +94,7 @@ func (t *Table) Apply(ops []kv.Op) error {
 		case kv.OpDelete:
 			t.m[string(op.Key)] = Entry{Value: nil, Tombstone: true}
 		default:
-			return errors.New("memtable: invalid op kind")
+			return ErrInvalidOpKind
 		}
 	}
 	return nil

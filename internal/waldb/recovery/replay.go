@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -57,7 +58,12 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 				NextTxnId: state.maxCommitted + 1,
 				LastValid: truncateTo,
 			}, &ReplayLogicError{
-				Err: fmt.Errorf("%w: %v", ErrSegmentOrder, err),
+				Kind: ReplayLogicSegmentOrder,
+				Coordinates: &errorutil.Coordinates{
+					SegId: &start.SegId,
+				},
+				RecordType: record.RecordTypeUnknown,
+				Err:        fmt.Errorf("%w: %v", ErrSegmentOrder, err),
 			}
 	}
 
@@ -72,11 +78,12 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 	if startIdx == -1 {
 		lg.Error("start segment not found", nil, "seg", start.SegId)
 		return nil, &ReplayLogicError{
+			Kind: ReplayLogicSegmentOrder,
 			Coordinates: &errorutil.Coordinates{
 				SegId: &start.SegId,
 			},
-			Type: record.RecordTypeUnknown,
-			Err:  ErrSegmentNotFound,
+			RecordType: record.RecordTypeUnknown,
+			Err:        ErrSegmentNotFound,
 		}
 	}
 
@@ -92,6 +99,7 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 					NextTxnId: state.maxCommitted + 1,
 					LastValid: truncateTo,
 				}, &ReplayLogicError{
+					Kind: ReplayLogicSegmentOpen,
 					Coordinates: &errorutil.Coordinates{
 						SegId: &segId,
 					},
@@ -104,12 +112,13 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 						NextTxnId: state.maxCommitted + 1,
 						LastValid: truncateTo,
 					}, &ReplayLogicError{
+						Kind: ReplayLogicSegmentOpen,
 						Coordinates: &errorutil.Coordinates{
 							SegId:  &segId,
 							Offset: &start.Offset,
 						},
-						Type: record.RecordTypeUnknown,
-						Err:  err,
+						RecordType: record.RecordTypeUnknown,
+						Err:        err,
 					}
 			}
 		} else {
@@ -118,11 +127,12 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 						NextTxnId: state.maxCommitted + 1,
 						LastValid: truncateTo,
 					}, &ReplayLogicError{
+						Kind: ReplayLogicSegmentOpen,
 						Coordinates: &errorutil.Coordinates{
 							SegId: &segId,
 						},
-						Type: record.RecordTypeUnknown,
-						Err:  err,
+						RecordType: record.RecordTypeUnknown,
+						Err:        err,
 					}
 			}
 		}
@@ -139,12 +149,12 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 				return &ReplayResult{
 						NextTxnId: state.maxCommitted + 1,
 						LastValid: truncateTo,
-					}, &ReplayDecodeError{
+					}, &ReplayLogicError{
+						Kind: ReplayLogicSegmentOpen,
 						Coordinates: &errorutil.Coordinates{
 							SegId: &segId,
 						},
 						RecordType: record.RecordTypeUnknown,
-						SafeOffset: truncateTo.Offset,
 						Err:        err,
 					}
 			}
@@ -169,12 +179,13 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 					NextTxnId: state.maxCommitted + 1,
 					LastValid: truncateTo,
 				}, &ReplayLogicError{
+					Kind: ReplayLogicSegmentClose,
 					Coordinates: &errorutil.Coordinates{
 						SegId:  &segId,
 						Offset: &truncateTo.Offset,
 					},
-					Type: record.RecordTypeUnknown,
-					Err:  err,
+					RecordType: record.RecordTypeUnknown,
+					Err:        err,
 				}
 		}
 	}
@@ -201,84 +212,118 @@ func replayOne(rec record.FramedRecord, segId uint64, state *replayState) error 
 		if err != nil {
 			return &ReplayDecodeError{
 				Coordinates: &errorutil.Coordinates{
-					SegId: &segId,
+					SegId:  &segId,
+					Offset: &rec.Offset,
 				},
 				RecordType:  rec.Record.Type,
 				DeclaredLen: rec.Record.Len,
 				Err:         err,
 			}
 		}
-		return state.onBegin(*payload, recordCtx{
-			offset:      rec.Offset,
-			segId:       segId,
-			declaredLen: rec.Record.Len,
-			recordType:  rec.Record.Type,
-		})
-
+		if err := state.onBegin(*payload); err != nil {
+			return &ReplayLogicError{
+				Kind: ReplayLogicBegin,
+				Coordinates: &errorutil.Coordinates{
+					SegId:  &segId,
+					Offset: &rec.Offset,
+					TxnID:  &payload.TxnID,
+				},
+				RecordType: rec.Record.Type,
+				Err:        err,
+			}
+		}
 	case record.RecordTypeCommitTransaction:
 		payload, err := record.DecodeCommitTxnPayload(rec.Record.Payload)
 		if err != nil {
 			return &ReplayDecodeError{
 				Coordinates: &errorutil.Coordinates{
-					SegId: &segId,
+					SegId:  &segId,
+					Offset: &rec.Offset,
 				},
 				RecordType:  rec.Record.Type,
 				DeclaredLen: rec.Record.Len,
 				Err:         err,
 			}
 		}
-		return state.onCommit(*payload, recordCtx{
-			offset:      rec.Offset,
-			segId:       segId,
-			declaredLen: rec.Record.Len,
-			recordType:  rec.Record.Type,
-		})
+		if err := state.onCommit(*payload); err != nil {
+			errKind := ReplayLogicCommit
+			if errors.Is(err, memtable.ErrInvalidOpKind) || errors.Is(err, memtable.ErrNilKey) {
+				errKind = ReplayLogicApply
+			}
+			return &ReplayLogicError{
+				Kind: errKind,
+				Coordinates: &errorutil.Coordinates{
+					SegId:  &segId,
+					Offset: &rec.Offset,
+					TxnID:  &payload.TxnID,
+				},
+				RecordType: rec.Record.Type,
+				Err:        err,
+			}
+		}
 	case record.RecordTypePutOperation:
 		payload, err := record.DecodePutOpPayload(rec.Record.Payload)
 		if err != nil {
 			return &ReplayDecodeError{
 				Coordinates: &errorutil.Coordinates{
-					SegId: &segId,
+					SegId:  &segId,
+					Offset: &rec.Offset,
 				},
 				RecordType:  rec.Record.Type,
 				DeclaredLen: rec.Record.Len,
 				Err:         err,
 			}
 		}
-		return state.onPut(*payload, recordCtx{
-			offset:      rec.Offset,
-			segId:       segId,
-			declaredLen: rec.Record.Len,
-			recordType:  rec.Record.Type,
-		})
+		if err := state.onPut(*payload); err != nil {
+			return &ReplayLogicError{
+				Kind: ReplayLogicPut,
+				Coordinates: &errorutil.Coordinates{
+					SegId:  &segId,
+					Offset: &rec.Offset,
+					TxnID:  &payload.TxnID,
+				},
+				RecordType: rec.Record.Type,
+				Err:        err,
+			}
+		}
 	case record.RecordTypeDeleteOperation:
 		payload, err := record.DecodeDeleteOpPayload(rec.Record.Payload)
 		if err != nil {
 			return &ReplayDecodeError{
 				Coordinates: &errorutil.Coordinates{
-					SegId: &segId,
+					SegId:  &segId,
+					Offset: &rec.Offset,
 				},
 				RecordType:  rec.Record.Type,
 				DeclaredLen: rec.Record.Len,
 				Err:         err,
 			}
 		}
-		return state.onDel(*payload, recordCtx{
-			offset:      rec.Offset,
-			segId:       segId,
-			declaredLen: rec.Record.Len,
-			recordType:  rec.Record.Type,
-		})
+		if err := state.onDel(*payload); err != nil {
+			return &ReplayLogicError{
+				Kind: ReplayLogicDel,
+				Coordinates: &errorutil.Coordinates{
+					SegId:  &segId,
+					Offset: &rec.Offset,
+					TxnID:  &payload.TxnID,
+				},
+				RecordType: rec.Record.Type,
+				Err:        err,
+			}
+		}
 	default:
 		return &ReplayDecodeError{
 			Coordinates: &errorutil.Coordinates{
-				SegId: &segId,
+				SegId:  &segId,
+				Offset: &rec.Offset,
 			},
 			RecordType:  record.RecordTypeUnknown,
 			DeclaredLen: rec.Record.Len,
 			Err:         record.ErrInvalidType,
 		}
 	}
+
+	return nil
 }
 
 // validateSegments checks that the given segment IDs are well-ordered, consecutive, and non-empty.

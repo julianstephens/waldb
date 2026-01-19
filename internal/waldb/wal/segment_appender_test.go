@@ -725,7 +725,7 @@ func TestAppendReturnError(t *testing.T) {
 	}
 
 	// Check that it's a SegmentWriteError
-	var segErr *wal.SegmentWriteError
+	var segErr *wal.SegmentAppendError
 	tst.AssertTrue(t, errors.As(err, &segErr), "expected SegmentWriteError")
 
 	// Check the error type is ErrInvalidRecord
@@ -756,7 +756,7 @@ func TestFlushOnClosedWriter(t *testing.T) {
 	}
 
 	// Check that it's a SegmentWriteError
-	var segErr *wal.SegmentWriteError
+	var segErr *wal.SegmentAppendError
 	tst.AssertTrue(t, errors.As(err, &segErr), "expected SegmentWriteError")
 }
 
@@ -780,7 +780,7 @@ func TestFSyncReturnError(t *testing.T) {
 	}
 
 	// Check that it's a SegmentWriteError
-	var segErr *wal.SegmentWriteError
+	var segErr *wal.SegmentAppendError
 	tst.AssertTrue(t, errors.As(err, &segErr), "expected SegmentWriteError")
 }
 
@@ -812,7 +812,7 @@ func TestCloseReturnError(t *testing.T) {
 
 // TestSegmentWriteErrorInterface tests SegmentWriteError implements error interface
 func TestSegmentWriteErrorInterface(t *testing.T) {
-	err := &wal.SegmentWriteError{
+	err := &wal.SegmentAppendError{
 		Err:        wal.ErrInvalidRecord,
 		Offset:     100,
 		RecordType: record.RecordTypeBeginTransaction,

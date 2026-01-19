@@ -1,337 +1,459 @@
-package recovery_test
+package recovery
 
 import (
-	"errors"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
-	"github.com/julianstephens/waldb/internal/waldb/recovery"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
-// TestReplayStateOnBeginSuccess tests successful begin transaction
-func TestReplayStateOnBeginSuccess(t *testing.T) {
+// TestReplayState_ValidStateTransitions tests Absent -> Open -> Committed transition
+func TestReplayState_ValidStateTransitions(t *testing.T) {
 	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
+	rs := NewReplayState(mem)
 
-	payload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-
-	err := state.OnBegin(payload, ctx)
-	tst.RequireNoError(t, err)
-
-	// Verify transaction is inflight
-	inflight := state.Inflight()
-	tst.AssertTrue(t, len(inflight) == 1, "expected 1 inflight transaction")
-	_, exists := inflight[1]
-	tst.AssertTrue(t, exists, "expected transaction 1 to be inflight")
-}
-
-// TestReplayStateOnBeginZeroTxnId tests begin with zero transaction ID
-func TestReplayStateOnBeginZeroTxnId(t *testing.T) {
-	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
-
-	payload := record.BeginCommitTransactionPayload{TxnID: 0}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-
-	err := state.OnBegin(payload, ctx)
-	if err == nil {
-		t.Fatal("expected error for zero TxnID")
-	}
-	if !errors.Is(err, recovery.ErrTxnMismatch) {
-		t.Errorf("expected ErrTxnMismatch, got %v", err)
-	}
-}
-
-// TestReplayStateOnBeginDoubleBegin tests double begin for same transaction
-func TestReplayStateOnBeginDoubleBegin(t *testing.T) {
-	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
-
-	payload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-
-	// First begin should succeed
-	err := state.OnBegin(payload, ctx)
-	tst.RequireNoError(t, err)
-
-	// Second begin with same ID should fail
-	err = state.OnBegin(payload, ctx)
-	if err == nil {
-		t.Fatal("expected error on double begin")
-	}
-	if !errors.Is(err, recovery.ErrDoubleBegin) {
-		t.Errorf("expected ErrDoubleBegin, got %v", err)
-	}
-}
-
-// TestReplayStateOnPutSuccess tests successful put operation
-func TestReplayStateOnPutSuccess(t *testing.T) {
-	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
-
-	// Begin transaction
+	// Test valid transition: Absent -> Open (via BEGIN)
 	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-	tst.RequireNoError(t, state.OnBegin(beginPayload, ctx))
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err, "BEGIN should succeed for absent transaction")
+	tst.AssertEqual(t, rs.MaxCommitted(), uint64(0), "maxCommitted should not change on BEGIN")
 
-	// Add put operation
-	putPayload := record.PutOpPayload{
-		TxnID: 1,
-		Key:   []byte("testkey"),
-		Value: []byte("testvalue"),
-	}
-	ctx = recovery.NewRecordCtx(8, 1, 25, record.RecordTypePutOperation)
-
-	err := state.OnPut(putPayload, ctx)
-	tst.RequireNoError(t, err)
-
-	// Verify operation is stored
-	inflight := state.Inflight()
-	txnBuf, exists := inflight[1]
-	tst.AssertTrue(t, exists, "expected transaction 1 to be inflight")
-	tst.AssertTrue(t, len(txnBuf.Ops) == 1, "expected 1 operation")
-}
-
-// TestReplayStateOnPutWithoutBegin tests put without active transaction
-func TestReplayStateOnPutWithoutBegin(t *testing.T) {
-	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
-
-	putPayload := record.PutOpPayload{
-		TxnID: 1,
-		Key:   []byte("testkey"),
-		Value: []byte("testvalue"),
-	}
-	ctx := recovery.NewRecordCtx(0, 1, 25, record.RecordTypePutOperation)
-
-	err := state.OnPut(putPayload, ctx)
-	if err == nil {
-		t.Fatal("expected error on put without begin")
-	}
-	if !errors.Is(err, recovery.ErrOrphanOp) {
-		t.Errorf("expected ErrOrphanOp, got %v", err)
-	}
-}
-
-// TestReplayStateOnDelSuccess tests successful delete operation
-func TestReplayStateOnDelSuccess(t *testing.T) {
-	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
-
-	// Begin transaction
-	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-	tst.RequireNoError(t, state.OnBegin(beginPayload, ctx))
-
-	// Add delete operation
-	delPayload := record.DeleteOpPayload{
-		TxnID: 1,
-		Key:   []byte("testkey"),
-	}
-	ctx = recovery.NewRecordCtx(8, 1, 15, record.RecordTypeDeleteOperation)
-
-	err := state.OnDel(delPayload, ctx)
-	tst.RequireNoError(t, err)
-
-	// Verify operation is stored
-	inflight := state.Inflight()
-	txnBuf, exists := inflight[1]
-	tst.AssertTrue(t, exists, "expected transaction 1 to be inflight")
-	tst.AssertTrue(t, len(txnBuf.Ops) == 1, "expected 1 operation")
-}
-
-// TestReplayStateOnDelWithoutBegin tests delete without active transaction
-func TestReplayStateOnDelWithoutBegin(t *testing.T) {
-	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
-
-	delPayload := record.DeleteOpPayload{
-		TxnID: 1,
-		Key:   []byte("testkey"),
-	}
-	ctx := recovery.NewRecordCtx(0, 1, 15, record.RecordTypeDeleteOperation)
-
-	err := state.OnDel(delPayload, ctx)
-	if err == nil {
-		t.Fatal("expected error on delete without begin")
-	}
-	if !errors.Is(err, recovery.ErrOrphanOp) {
-		t.Errorf("expected ErrOrphanOp, got %v", err)
-	}
-}
-
-// TestReplayStateOnCommitSuccess tests successful commit
-func TestReplayStateOnCommitSuccess(t *testing.T) {
-	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
-
-	// Begin transaction
-	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-	tst.RequireNoError(t, state.OnBegin(beginPayload, ctx))
-
-	// Add operation
-	putPayload := record.PutOpPayload{
-		TxnID: 1,
-		Key:   []byte("testkey"),
-		Value: []byte("testvalue"),
-	}
-	ctx = recovery.NewRecordCtx(8, 1, 25, record.RecordTypePutOperation)
-	tst.RequireNoError(t, state.OnPut(putPayload, ctx))
-
-	// Commit
+	// Test valid transition: Open -> Committed (via COMMIT)
 	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx = recovery.NewRecordCtx(40, 1, 8, record.RecordTypeCommitTransaction)
-
-	err := state.OnCommit(commitPayload, ctx)
-	tst.RequireNoError(t, err)
-
-	// Verify transaction was removed from inflight
-	inflight := state.Inflight()
-	_, exists := inflight[1]
-	tst.AssertTrue(t, !exists, "expected transaction 1 to be removed after commit")
-
-	// Verify maxCommitted was updated
-	tst.AssertTrue(t, state.MaxCommitted() == 1, "expected maxCommitted to be 1")
+	err = rs.OnCommit(commitPayload)
+	tst.AssertNoError(t, err, "COMMIT should succeed for open transaction")
+	tst.AssertEqual(t, rs.MaxCommitted(), uint64(1), "maxCommitted should update on COMMIT")
 }
 
-// TestReplayStateOnCommitWithoutBegin tests commit without active transaction
-func TestReplayStateOnCommitWithoutBegin(t *testing.T) {
+// TestReplayState_BeginAbsentState tests BEGIN transitions Absent -> Open
+func TestReplayState_BeginAbsentState(t *testing.T) {
 	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
+	rs := NewReplayState(mem)
 
-	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeCommitTransaction)
+	// BEGIN on absent state should succeed
+	payload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(payload)
+	tst.AssertNoError(t, err, "BEGIN on absent state should succeed")
 
-	err := state.OnCommit(commitPayload, ctx)
-	if err == nil {
-		t.Fatal("expected error on commit without begin")
-	}
-	if !errors.Is(err, recovery.ErrCommitNoTxn) {
-		t.Errorf("expected ErrCommitNoTxn, got %v", err)
-	}
+	inflight := rs.Inflight()
+	tst.AssertEqual(t, len(inflight), 1, "inflight should have one transaction")
 }
 
-// TestReplayStateOnCommitNonMonotonic tests non-monotonic transaction IDs
-func TestReplayStateOnCommitNonMonotonic(t *testing.T) {
+// TestReplayState_BeginOpenState_DuplicateBegin tests BEGIN Open -> error
+func TestReplayState_BeginOpenState_DuplicateBegin(t *testing.T) {
 	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
+	rs := NewReplayState(mem)
 
-	// Commit transaction 2
-	beginPayload := record.BeginCommitTransactionPayload{TxnID: 2}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-	tst.RequireNoError(t, state.OnBegin(beginPayload, ctx))
+	// First BEGIN
+	payload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(payload)
+	tst.AssertNoError(t, err, "first BEGIN should succeed")
 
-	commitPayload := record.BeginCommitTransactionPayload{TxnID: 2}
-	ctx = recovery.NewRecordCtx(8, 1, 8, record.RecordTypeCommitTransaction)
-	tst.RequireNoError(t, state.OnCommit(commitPayload, ctx))
-
-	// Try to commit transaction 1 (lower than 2)
-	beginPayload = record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx = recovery.NewRecordCtx(16, 1, 8, record.RecordTypeBeginTransaction)
-	tst.RequireNoError(t, state.OnBegin(beginPayload, ctx))
-
-	commitPayload = record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx = recovery.NewRecordCtx(24, 1, 8, record.RecordTypeCommitTransaction)
-
-	err := state.OnCommit(commitPayload, ctx)
-	if err == nil {
-		t.Fatal("expected error on non-monotonic commit")
-	}
-	if !errors.Is(err, recovery.ErrTxnNotMonotonic) {
-		t.Errorf("expected ErrTxnNotMonotonic, got %v", err)
-	}
+	// Second BEGIN with same TxnID should fail
+	err = rs.OnBegin(payload)
+	tst.AssertTrue(t, err != nil, "duplicate BEGIN should error")
+	tst.AssertEqual(t, err.(*StateError).Kind, StateDoubleBegin, "error should be StateDoubleBegin")
 }
 
-// TestReplayStateComplexTransaction tests a full transaction with multiple operations
-func TestReplayStateComplexTransaction(t *testing.T) {
+// TestReplayState_BeginCommittedState_Reuse tests BEGIN Committed -> error
+func TestReplayState_BeginCommittedState_Reuse(t *testing.T) {
 	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
+	rs := NewReplayState(mem)
 
-	// Begin transaction
+	// BEGIN and COMMIT transaction 1
+	payload1 := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(payload1)
+	tst.AssertNoError(t, err)
+
+	err = rs.OnCommit(payload1)
+	tst.AssertNoError(t, err)
+
+	// Try to BEGIN again with same TxnID
+	err = rs.OnBegin(payload1)
+	tst.AssertTrue(t, err != nil, "BEGIN after COMMIT should error")
+	tst.AssertEqual(t, err.(*StateError).Kind, StateAfterCommit, "error should be StateAfterCommit")
+}
+
+// TestReplayState_PutOpenState tests PUT valid only in Open state
+func TestReplayState_PutOpenState(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// BEGIN transaction
 	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-	tst.RequireNoError(t, state.OnBegin(beginPayload, ctx))
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
 
-	// Add multiple operations
-	putPayload1 := record.PutOpPayload{
+	// PUT in open state should succeed
+	putPayload := record.PutOpPayload{
 		TxnID: 1,
 		Key:   []byte("key1"),
 		Value: []byte("value1"),
 	}
-	ctx = recovery.NewRecordCtx(8, 1, 20, record.RecordTypePutOperation)
-	tst.RequireNoError(t, state.OnPut(putPayload1, ctx))
+	err = rs.OnPut(putPayload)
+	tst.AssertNoError(t, err, "PUT in open state should succeed")
 
+	inflight := rs.Inflight()
+	tst.AssertEqual(t, len(inflight[1].Ops), 1, "inflight transaction should have one operation")
+	tst.AssertEqual(t, inflight[1].Ops[0].Kind, kv.OpPut, "operation kind should be OpPut")
+}
+
+// TestReplayState_PutAbsentState_OrphanOp tests PUT Absent -> error
+func TestReplayState_PutAbsentState_OrphanOp(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// PUT without BEGIN should error
+	putPayload := record.PutOpPayload{
+		TxnID: 1,
+		Key:   []byte("key1"),
+		Value: []byte("value1"),
+	}
+	err := rs.OnPut(putPayload)
+	tst.AssertTrue(t, err != nil, "PUT on absent transaction should error")
+	tst.AssertEqual(t, err.(*StateError).Kind, StateOrphanOp, "error should be StateOrphanOp")
+}
+
+// TestReplayState_PutCommittedState_OrphanOp tests PUT Committed -> error
+func TestReplayState_PutCommittedState_OrphanOp(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// BEGIN and COMMIT
+	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
+
+	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err = rs.OnCommit(commitPayload)
+	tst.AssertNoError(t, err)
+
+	// PUT after COMMIT should error
+	putPayload := record.PutOpPayload{
+		TxnID: 1,
+		Key:   []byte("key1"),
+		Value: []byte("value1"),
+	}
+	err = rs.OnPut(putPayload)
+	tst.AssertTrue(t, err != nil, "PUT after COMMIT should error")
+	// After COMMIT, txn is removed from inflight, so it returns StateOrphanOp
+	tst.AssertEqual(t, err.(*StateError).Kind, StateOrphanOp, "error should be StateOrphanOp")
+}
+
+// TestReplayState_DelOpenState tests DEL valid only in Open state
+func TestReplayState_DelOpenState(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// BEGIN transaction
+	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
+
+	// DEL in open state should succeed
 	delPayload := record.DeleteOpPayload{
 		TxnID: 1,
-		Key:   []byte("key2"),
+		Key:   []byte("key1"),
 	}
-	ctx = recovery.NewRecordCtx(28, 1, 14, record.RecordTypeDeleteOperation)
-	tst.RequireNoError(t, state.OnDel(delPayload, ctx))
+	err = rs.OnDel(delPayload)
+	tst.AssertNoError(t, err, "DEL in open state should succeed")
 
-	putPayload2 := record.PutOpPayload{
+	inflight := rs.Inflight()
+	tst.AssertEqual(t, len(inflight[1].Ops), 1, "inflight transaction should have one operation")
+	tst.AssertEqual(t, inflight[1].Ops[0].Kind, kv.OpDelete, "operation kind should be OpDelete")
+}
+
+// TestReplayState_DelAbsentState_OrphanOp tests DEL Absent -> error
+func TestReplayState_DelAbsentState_OrphanOp(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// DEL without BEGIN should error
+	delPayload := record.DeleteOpPayload{
 		TxnID: 1,
-		Key:   []byte("key3"),
-		Value: []byte("value3"),
+		Key:   []byte("key1"),
 	}
-	ctx = recovery.NewRecordCtx(42, 1, 20, record.RecordTypePutOperation)
-	tst.RequireNoError(t, state.OnPut(putPayload2, ctx))
+	err := rs.OnDel(delPayload)
+	tst.AssertTrue(t, err != nil, "DEL on absent transaction should error")
+	tst.AssertEqual(t, err.(*StateError).Kind, StateOrphanOp, "error should be StateOrphanOp")
+}
 
-	// Verify all operations are buffered
-	inflight := state.Inflight()
-	txnBuf, exists := inflight[1]
-	tst.AssertTrue(t, exists, "expected transaction 1 to be inflight")
-	tst.AssertTrue(t, len(txnBuf.Ops) == 3, "expected 3 operations")
+// TestReplayState_DelCommittedState_OrphanOp tests DEL Committed -> error
+func TestReplayState_DelCommittedState_OrphanOp(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// BEGIN and COMMIT
+	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
+
+	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err = rs.OnCommit(commitPayload)
+	tst.AssertNoError(t, err)
+
+	// DEL after COMMIT should error
+	delPayload := record.DeleteOpPayload{
+		TxnID: 1,
+		Key:   []byte("key1"),
+	}
+	err = rs.OnDel(delPayload)
+	tst.AssertTrue(t, err != nil, "DEL after COMMIT should error")
+	// After COMMIT, txn is removed from inflight, so it returns StateOrphanOp
+	tst.AssertEqual(t, err.(*StateError).Kind, StateOrphanOp, "error should be StateOrphanOp")
+}
+
+// TestReplayState_CommitOpenState tests COMMIT Open -> apply and mark Committed
+func TestReplayState_CommitOpenState(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// BEGIN transaction
+	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
+
+	// Add some operations
+	putPayload := record.PutOpPayload{
+		TxnID: 1,
+		Key:   []byte("key1"),
+		Value: []byte("value1"),
+	}
+	err = rs.OnPut(putPayload)
+	tst.AssertNoError(t, err)
+
+	// COMMIT should succeed
+	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err = rs.OnCommit(commitPayload)
+	tst.AssertNoError(t, err, "COMMIT on open state should succeed")
+
+	// Inflight should be empty
+	inflight := rs.Inflight()
+	tst.AssertEqual(t, len(inflight), 0, "inflight should be empty after COMMIT")
+
+	// Verify the operation was applied to memtable
+	val, found := mem.Get([]byte("key1"))
+	tst.AssertTrue(t, found, "key1 should exist in memtable")
+	tst.AssertDeepEqual(t, val, []byte("value1"), "value should be correct in memtable")
+}
+
+// TestReplayState_CommitAbsentState_Corruption tests COMMIT Absent -> error
+func TestReplayState_CommitAbsentState_Corruption(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// COMMIT without BEGIN should error
+	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnCommit(commitPayload)
+	tst.AssertTrue(t, err != nil, "COMMIT on absent transaction should error")
+	tst.AssertEqual(t, err.(*StateError).Kind, StateCommitNoTxn, "error should be StateCommitNoTxn")
+}
+
+// TestReplayState_CommitCommittedState_DoubleCommit tests COMMIT Committed -> error
+func TestReplayState_CommitCommittedState_DoubleCommit(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// BEGIN and first COMMIT
+	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
+
+	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err = rs.OnCommit(commitPayload)
+	tst.AssertNoError(t, err)
+
+	// Second COMMIT should error
+	err = rs.OnCommit(commitPayload)
+	tst.AssertTrue(t, err != nil, "double COMMIT should error")
+	tst.AssertEqual(t, err.(*StateError).Kind, StateCommitNoTxn, "error should be StateCommitNoTxn")
+}
+
+// TestReplayState_IgnoredState_BeginWithoutCommit tests Ignored state (BEGIN but no COMMIT)
+func TestReplayState_IgnoredState_BeginWithoutCommit(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// BEGIN transaction but never COMMIT
+	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
+
+	// Add operations
+	putPayload := record.PutOpPayload{
+		TxnID: 1,
+		Key:   []byte("key1"),
+		Value: []byte("value1"),
+	}
+	err = rs.OnPut(putPayload)
+	tst.AssertNoError(t, err)
+
+	// End of replay - transaction is ignored (never applied to memtable)
+	inflight := rs.Inflight()
+	tst.AssertEqual(t, len(inflight), 1, "transaction should still be inflight")
+
+	// Verify the operation was NOT applied to memtable
+	_, found := mem.Get([]byte("key1"))
+	tst.AssertFalse(t, found, "key1 should NOT exist in memtable (transaction ignored)")
+}
+
+// TestReplayState_MonotonicCommitIDs tests monotonic transaction ID requirement
+func TestReplayState_MonotonicCommitIDs(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// Commit transaction 1
+	payload1 := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(payload1)
+	tst.AssertNoError(t, err)
+
+	err = rs.OnCommit(payload1)
+	tst.AssertNoError(t, err)
+	tst.AssertEqual(t, rs.MaxCommitted(), uint64(1))
+
+	// Commit transaction 2
+	payload2 := record.BeginCommitTransactionPayload{TxnID: 2}
+	err = rs.OnBegin(payload2)
+	tst.AssertNoError(t, err)
+
+	err = rs.OnCommit(payload2)
+	tst.AssertNoError(t, err)
+	tst.AssertEqual(t, rs.MaxCommitted(), uint64(2))
+
+	// Try to commit transaction 3 (should work - still monotonic)
+	payload3 := record.BeginCommitTransactionPayload{TxnID: 3}
+	err = rs.OnBegin(payload3)
+	tst.AssertNoError(t, err)
+
+	err = rs.OnCommit(payload3)
+	tst.AssertNoError(t, err)
+	tst.AssertEqual(t, rs.MaxCommitted(), uint64(3))
+
+	// Try to commit old transaction 1 again - should error (non-monotonic)
+	payload1Again := record.BeginCommitTransactionPayload{TxnID: 1}
+	err = rs.OnBegin(payload1Again)
+	// BEGIN should fail because txn 1 is already committed
+	tst.AssertTrue(t, err != nil, "BEGIN after COMMIT should error")
+}
+
+// TestReplayState_BeginWithZeroTxnID tests BEGIN with TxnID=0 is invalid
+func TestReplayState_BeginWithZeroTxnID(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// BEGIN with TxnID 0 should error
+	payload := record.BeginCommitTransactionPayload{TxnID: 0}
+	err := rs.OnBegin(payload)
+	tst.AssertTrue(t, err != nil, "BEGIN with TxnID=0 should error")
+	tst.AssertEqual(t, err.(*StateError).Kind, StateTxnMismatch)
+}
+
+// TestReplayState_MultipleTransactionsInterleaved tests interleaved transactions
+func TestReplayState_MultipleTransactionsInterleaved(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// Begin txn 1
+	payload1Begin := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(payload1Begin)
+	tst.AssertNoError(t, err)
+
+	// Begin txn 2
+	payload2Begin := record.BeginCommitTransactionPayload{TxnID: 2}
+	err = rs.OnBegin(payload2Begin)
+	tst.AssertNoError(t, err)
+
+	// Put in txn 1
+	putPayload1 := record.PutOpPayload{TxnID: 1, Key: []byte("k1"), Value: []byte("v1")}
+	err = rs.OnPut(putPayload1)
+	tst.AssertNoError(t, err)
+
+	// Put in txn 2
+	putPayload2 := record.PutOpPayload{TxnID: 2, Key: []byte("k2"), Value: []byte("v2")}
+	err = rs.OnPut(putPayload2)
+	tst.AssertNoError(t, err)
+
+	// Commit txn 1
+	payload1Commit := record.BeginCommitTransactionPayload{TxnID: 1}
+	err = rs.OnCommit(payload1Commit)
+	tst.AssertNoError(t, err)
+
+	// Commit txn 2
+	payload2Commit := record.BeginCommitTransactionPayload{TxnID: 2}
+	err = rs.OnCommit(payload2Commit)
+	tst.AssertNoError(t, err)
+
+	// Verify both operations in memtable
+	val1, found1 := mem.Get([]byte("k1"))
+	tst.AssertTrue(t, found1, "k1 should exist")
+	tst.AssertDeepEqual(t, val1, []byte("v1"))
+
+	val2, found2 := mem.Get([]byte("k2"))
+	tst.AssertTrue(t, found2, "k2 should exist")
+	tst.AssertDeepEqual(t, val2, []byte("v2"))
+
+	inflight := rs.Inflight()
+	tst.AssertEqual(t, len(inflight), 0, "no transactions should be inflight")
+	tst.AssertEqual(t, rs.MaxCommitted(), uint64(2))
+}
+
+// TestReplayState_DeleteAndPutSameKey tests delete followed by put on same key
+func TestReplayState_DeleteAndPutSameKey(t *testing.T) {
+	mem := memtable.New()
+	rs := NewReplayState(mem)
+
+	// Pre-populate memtable
+	err := mem.Put([]byte("key1"), []byte("initial"))
+	tst.AssertNoError(t, err)
+
+	// Begin transaction
+	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err = rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
+
+	// Delete key
+	delPayload := record.DeleteOpPayload{TxnID: 1, Key: []byte("key1")}
+	err = rs.OnDel(delPayload)
+	tst.AssertNoError(t, err)
+
+	// Put same key with new value
+	putPayload := record.PutOpPayload{
+		TxnID: 1,
+		Key:   []byte("key1"),
+		Value: []byte("updated"),
+	}
+	err = rs.OnPut(putPayload)
+	tst.AssertNoError(t, err)
 
 	// Commit
 	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx = recovery.NewRecordCtx(62, 1, 8, record.RecordTypeCommitTransaction)
-	tst.RequireNoError(t, state.OnCommit(commitPayload, ctx))
+	err = rs.OnCommit(commitPayload)
+	tst.AssertNoError(t, err)
 
-	// Verify transaction was removed
-	inflight = state.Inflight()
-	_, exists = inflight[1]
-	tst.AssertTrue(t, !exists, "expected transaction 1 to be removed after commit")
-	tst.AssertTrue(t, state.MaxCommitted() == 1, "expected maxCommitted to be 1")
+	// Verify final value
+	val, found := mem.Get([]byte("key1"))
+	tst.AssertTrue(t, found, "key1 should exist")
+	tst.AssertDeepEqual(t, val, []byte("updated"))
 }
 
-// TestReplayStateMultipleTransactions tests multiple concurrent transactions
-func TestReplayStateMultipleTransactions(t *testing.T) {
+// TestReplayState_CommitEmptyTransaction tests committing a transaction with no operations
+func TestReplayState_CommitEmptyTransaction(t *testing.T) {
 	mem := memtable.New()
-	state := recovery.NewReplayState(mem)
+	rs := NewReplayState(mem)
 
-	// Begin transactions 1 and 2
-	for txnID := uint64(1); txnID <= 2; txnID++ {
-		beginPayload := record.BeginCommitTransactionPayload{TxnID: txnID}
-		ctx := recovery.NewRecordCtx(0, 1, 8, record.RecordTypeBeginTransaction)
-		err := state.OnBegin(beginPayload, ctx)
-		tst.RequireNoError(t, err)
-	}
+	// Begin transaction with no operations
+	beginPayload := record.BeginCommitTransactionPayload{TxnID: 1}
+	err := rs.OnBegin(beginPayload)
+	tst.AssertNoError(t, err)
 
-	// Verify both are inflight
-	inflight := state.Inflight()
-	tst.AssertTrue(t, len(inflight) == 2, "expected 2 inflight transactions")
-
-	// Commit transaction 1
+	// Commit empty transaction
 	commitPayload := record.BeginCommitTransactionPayload{TxnID: 1}
-	ctx := recovery.NewRecordCtx(8, 1, 8, record.RecordTypeCommitTransaction)
-	tst.RequireNoError(t, state.OnCommit(commitPayload, ctx))
+	err = rs.OnCommit(commitPayload)
+	tst.AssertNoError(t, err, "committing empty transaction should succeed")
 
-	// Verify only transaction 2 is inflight
-	inflight = state.Inflight()
-	tst.AssertTrue(t, len(inflight) == 1, "expected 1 inflight transaction")
-	_, exists := inflight[2]
-	tst.AssertTrue(t, exists, "expected transaction 2 to be inflight")
-
-	// Commit transaction 2
-	commitPayload = record.BeginCommitTransactionPayload{TxnID: 2}
-	tst.RequireNoError(t, state.OnCommit(commitPayload, ctx))
-
-	// Verify both are committed
-	inflight = state.Inflight()
-	tst.AssertTrue(t, len(inflight) == 0, "expected 0 inflight transactions")
-	tst.AssertTrue(t, state.MaxCommitted() == 2, "expected maxCommitted to be 2")
+	inflight := rs.Inflight()
+	tst.AssertEqual(t, len(inflight), 0, "inflight should be empty")
+	tst.AssertEqual(t, rs.MaxCommitted(), uint64(1))
 }
