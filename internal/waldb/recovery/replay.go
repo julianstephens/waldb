@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/julianstephens/go-utils/validator"
@@ -50,6 +51,15 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 	truncateTo := start
 
 	ids := p.SegmentIDs()
+	if err := validateSegments(ids); err != nil {
+		lg.Error("segment validation failed", err)
+		return &ReplayResult{
+				NextTxnId: state.maxCommitted + 1,
+				LastValid: truncateTo,
+			}, &ReplayLogicError{
+				Err: fmt.Errorf("%w: %v", ErrSegmentOrder, err),
+			}
+	}
 
 	startIdx := -1
 	for i, segId := range ids {
@@ -279,11 +289,17 @@ func validateSegments(ids []uint64) error {
 		return nil
 	}
 
+	if err := v.ValidateNonZero(ids[0]); err != nil {
+		return err
+	}
+
 	for i := 1; i < len(ids); i++ {
 		if err := v.ValidateNonZero(ids[i]); err != nil {
 			return err
 		}
-
+		if err := v.ValidateConsecutive(ids[i-1], ids[i]); err != nil {
+			return err
+		}
 	}
 
 	return nil

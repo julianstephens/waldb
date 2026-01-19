@@ -33,6 +33,7 @@ var (
 	ErrTxnNotMonotonic = errors.New("recovery: non-monotonic txn_id")
 	ErrDoubleBegin     = errors.New("recovery: begin while transaction active")
 	ErrCommitNoTxn     = errors.New("recovery: commit with no active transaction")
+	ErrSegmentOrder    = errors.New("recovery: invalid segment order")
 	ErrSegmentNotFound = errors.New("recovery: starting segment not found")
 )
 
