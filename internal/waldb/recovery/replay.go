@@ -42,6 +42,10 @@ type ReplayResult struct {
 // Replay replays WAL segments from the given starting boundary into the provided memtable.
 // It returns a ReplayResult indicating the next transaction ID and last valid boundary.
 func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg logger.Logger) (*ReplayResult, error) {
+	if lg == nil {
+		lg = logger.NoOpLogger{}
+	}
+
 	state := newReplayState(mem)
 	truncateTo := start
 
@@ -56,6 +60,7 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 	}
 
 	if startIdx == -1 {
+		lg.Error("start segment not found", nil, "seg", start.SegId)
 		return nil, &ReplayLogicError{
 			Coordinates: &errorutil.Coordinates{
 				SegId: &start.SegId,
@@ -65,10 +70,14 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 		}
 	}
 
+	lg.Info("starting WAL replay", "start_seg", start.SegId, "start_offset", start.Offset, "total_segs", len(ids))
+
 	for i := startIdx; i < len(ids); i++ {
 		segId := ids[i]
+		lg.Debug("processing segment", "seg", segId, "index", i-startIdx, "total", len(ids)-startIdx)
 		sr, err := p.OpenSegment(segId)
 		if err != nil {
+			lg.Warn("failed to open segment", "seg", segId, "reason", "open_error")
 			return &ReplayResult{
 					NextTxnId: state.maxCommitted + 1,
 					LastValid: truncateTo,
@@ -109,10 +118,12 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 		}
 
 		rr := record.NewFrameReader(sr.Reader())
+		frameCount := 0
 		for {
 			rec, err := rr.Next()
 			if err != nil {
 				if err == io.EOF {
+					lg.Debug("segment read complete", "seg", segId, "frames_processed", frameCount)
 					break
 				}
 				return &ReplayResult{
@@ -134,6 +145,7 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 					LastValid: truncateTo,
 				}, err
 			}
+			frameCount++
 
 			truncateTo = wal.Boundary{
 				SegId:  segId,
@@ -157,6 +169,15 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 		}
 	}
 
+	lg.Info(
+		"WAL replay complete",
+		"next_txn_id",
+		state.maxCommitted+1,
+		"last_valid_seg",
+		truncateTo.SegId,
+		"last_valid_offset",
+		truncateTo.Offset,
+	)
 	return &ReplayResult{
 		NextTxnId: state.maxCommitted + 1,
 		LastValid: truncateTo,

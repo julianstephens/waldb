@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/julianstephens/go-utils/generic"
 	"github.com/julianstephens/go-utils/helpers"
 	goulog "github.com/julianstephens/go-utils/logger"
 )
@@ -81,17 +82,17 @@ type FileLogger struct {
 	filePath   string
 }
 
-// NewFileLogger creates a logger that writes to a rotating file using go-utils/logger.
-// It uses go-utils/logger's built-in rotating file handler with configurable parameters.
+// NewFileLogger creates a logger that writes to a rotating file using go-utils/logger v0.4.2.
+// It wraps go-utils/logger with lumberjack-based rotating file handler (configurable parameters).
 //
 // Parameters:
 //   - logDir: Directory where log files will be stored (created if missing)
 //   - logFileName: Name of the log file (e.g., "waldb.log")
-//   - maxFileSizeMB: Maximum size per log file in MB before rotation (e.g., 100)
-//   - maxBackups: Maximum number of backup log files to retain (e.g., 5)
+//   - maxFileSizeMB: Maximum size per log file in MB before rotation (default: 100)
+//   - maxBackups: Maximum number of backup log files to retain (default: 5)
 //
 // Returns a Logger that writes to rotating files with automatic compression
-// of old logs (enabled by default) and 28-day retention.
+// of old logs. Implements graceful shutdown via Close()/Sync().
 func NewFileLogger(logDir string, logFileName string, maxFileSizeMB int, maxBackups int) (Logger, error) {
 	if err := helpers.Ensure(logDir, true); err != nil {
 		return nil, wrapLoggerErr("create file logger", ErrLogCreate, err, logDir)
@@ -106,10 +107,8 @@ func NewFileLogger(logDir string, logFileName string, maxFileSizeMB int, maxBack
 	if err := underlying.SetFileOutputWithConfig(goulog.FileRotationConfig{
 		Filename:   logPath,
 		MaxSize:    maxFileSizeMB,
-		MaxBackups: maxBackups,
-		// FIXME: remove in favor of CLI-configurable retention
-		MaxAge:   28,   // Retain logs for 28 days
-		Compress: true, // Compress old logs to save space
+		MaxBackups: generic.Ptr(maxBackups),
+		Compress:   true, // Compress old logs to save space
 	}); err != nil {
 		return nil, wrapLoggerErr("create file logger", ErrLogCreate, err, logDir)
 	}
@@ -156,10 +155,13 @@ func (fl *FileLogger) Error(msg string, err error, fields ...interface{}) {
 }
 
 // Close gracefully closes the logger.
-// For go-utils/logger, this ensures all pending log entries are flushed.
 func (fl *FileLogger) Close() error {
-	// go-utils/logger doesn't expose a Close method, but we maintain the interface
-	// for future compatibility and graceful shutdown patterns
+	if err := fl.underlying.Sync(); err != nil {
+		return wrapLoggerErr("sync file logger", ErrLogClose, err, fl.filePath)
+	}
+	if err := fl.underlying.Close(); err != nil {
+		return wrapLoggerErr("close file logger", ErrLogClose, err, fl.filePath)
+	}
 	return nil
 }
 
@@ -222,5 +224,8 @@ func (ml *MultiLogger) Close() error {
 			}
 		}
 	}
-	return wrapLoggerErr("close multi logger", ErrLogClose, lastErr, "")
+	if lastErr != nil {
+		return wrapLoggerErr("close multi logger", ErrLogClose, lastErr, "")
+	}
+	return nil
 }
