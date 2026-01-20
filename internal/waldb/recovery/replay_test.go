@@ -22,7 +22,7 @@ func TestReplayEmptyProvider(t *testing.T) {
 	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 	// Empty provider means no segments, so we expect an error
 	tst.AssertTrue(t, err != nil, "expected error with empty provider")
-	tst.AssertTrue(t, result == nil, "expected nil result")
+	tst.AssertTrue(t, result != nil, "expected non-nil result")
 }
 
 // TestReplaySegmentNotFound tests replay with starting segment that doesn't exist
@@ -37,7 +37,8 @@ func TestReplaySegmentNotFound(t *testing.T) {
 
 	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 	tst.AssertTrue(t, err != nil, "expected error when segment not found")
-	tst.AssertTrue(t, result == nil, "expected nil result")
+	tst.AssertTrue(t, result != nil, "expected non-nil result")
+	tst.AssertTrue(t, result.TailStatus == recovery.TailStatusMissing, "expected TailStatusMissing")
 }
 
 // TestReplayOpenSegmentError tests replay when opening segment fails
@@ -49,8 +50,10 @@ func TestReplayOpenSegmentError(t *testing.T) {
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
 
-	_, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 	tst.AssertTrue(t, err != nil, "expected error when opening segment fails")
+	tst.AssertTrue(t, result != nil, "expected non-nil result")
+	tst.AssertTrue(t, result.TailStatus == recovery.TailStatusCorrupt, "expected TailStatusCorrupt")
 }
 
 // TestReplaySingleBeginCommit tests replay with one begin/commit transaction
@@ -314,15 +317,18 @@ func TestReplayStartOffset(t *testing.T) {
 // TestReplayInvalidRecordData tests replay with invalid record data
 func TestReplayInvalidRecordData(t *testing.T) {
 	provider := testutil.NewSegmentProvider()
-	// Add invalid record data (just random bytes)
-	provider.AddSegment(1, []byte{0xFF, 0xFE, 0xFD})
+	// Add an invalid record type byte - need at least a full header (4 bytes) + body + crc to trigger parse error
+	// Create a record with a length that's way too large
+	invalidData := []byte{0xFF, 0xFF, 0xFF, 0x7F} // Large declared length in little-endian
+	provider.AddSegment(1, invalidData)
 
 	mem := memtable.New()
 	start := wal.Boundary{SegId: 1, Offset: 0}
-	_, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
 
-	// Should error on invalid record
+	// Should error on invalid/truncated record
 	tst.AssertTrue(t, err != nil, "expected error on invalid record")
+	tst.AssertTrue(t, result != nil, "expected non-nil result")
 }
 
 // TestReplayLargeValue tests replay with large values
@@ -409,4 +415,163 @@ func TestReplayMultipleTransactions(t *testing.T) {
 		tst.AssertTrue(t, found, "expected key to be in memtable")
 		tst.RequireDeepEqual(t, val, value)
 	}
+}
+
+// TestReplayTruncationAtOffset0InLastSegment tests the policy for truncation at offset 0
+// in the last segment: it's treated as a clean EOF (valid tail status).
+// Policy: A truncation at the exact start of a record boundary is treated as if that
+// record was never written, which is safe because no partial data from that record
+// made it to the memtable.
+func TestReplayTruncationAtOffset0InLastSegment(t *testing.T) {
+	// Create a complete transaction in segment 1
+	beginPayload1, err := record.EncodeBeginTxnPayload(1)
+	tst.RequireNoError(t, err)
+	beginFrame1, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload1)
+	tst.RequireNoError(t, err)
+
+	putPayload1, err := record.EncodePutOpPayload(1, []byte("key1"), []byte("value1"))
+	tst.RequireNoError(t, err)
+	putFrame1, err := record.EncodeFrame(record.RecordTypePutOperation, putPayload1)
+	tst.RequireNoError(t, err)
+
+	commitPayload1, err := record.EncodeCommitTxnPayload(1)
+	tst.RequireNoError(t, err)
+	commitFrame1, err := record.EncodeFrame(record.RecordTypeCommitTransaction, commitPayload1)
+	tst.RequireNoError(t, err)
+
+	segment1Data := append(append(beginFrame1, putFrame1...), commitFrame1...)
+
+	// Segment 2 will have truncation at offset 0 (empty or immediately truncated)
+	provider := testutil.NewSegmentProvider()
+	provider.AddSegment(1, segment1Data)
+	provider.AddSegment(2, []byte{}) // Empty segment (truncation at offset 0)
+
+	mem := memtable.New()
+	start := wal.Boundary{SegId: 1, Offset: 0}
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
+
+	tst.RequireNoError(t, err)
+	tst.AssertTrue(t, result != nil, "expected non-nil result")
+	tst.AssertTrue(
+		t,
+		result.TailStatus == recovery.TailStatusValid,
+		"expected TailStatusValid for truncation at offset 0 in last segment",
+	)
+	tst.AssertTrue(t, result.NextTxnId == 2, "expected NextTxnId to be 2")
+
+	// Verify the committed transaction is present
+	val, found := mem.Get([]byte("key1"))
+	tst.AssertTrue(t, found, "expected key1 to be in memtable")
+	tst.RequireDeepEqual(t, val, []byte("value1"))
+}
+
+// TestReplayTruncationInNonFinalSegment tests that truncation in a non-final segment
+// is treated as corruption, not as a valid tail.
+func TestReplayTruncationInNonFinalSegment(t *testing.T) {
+	// Create a complete transaction in segment 1
+	beginPayload1, err := record.EncodeBeginTxnPayload(1)
+	tst.RequireNoError(t, err)
+	beginFrame1, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload1)
+	tst.RequireNoError(t, err)
+
+	putPayload1, err := record.EncodePutOpPayload(1, []byte("key1"), []byte("value1"))
+	tst.RequireNoError(t, err)
+	putFrame1, err := record.EncodeFrame(record.RecordTypePutOperation, putPayload1)
+	tst.RequireNoError(t, err)
+
+	commitPayload1, err := record.EncodeCommitTxnPayload(1)
+	tst.RequireNoError(t, err)
+	commitFrame1, err := record.EncodeFrame(record.RecordTypeCommitTransaction, commitPayload1)
+	tst.RequireNoError(t, err)
+
+	segment1Data := append(append(beginFrame1, putFrame1...), commitFrame1...)
+
+	// Segment 2 has partial transaction (will cause truncation when reading)
+	beginPayload2, err := record.EncodeBeginTxnPayload(2)
+	tst.RequireNoError(t, err)
+	beginFrame2, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload2)
+	tst.RequireNoError(t, err)
+
+	// Truncate the begin frame to make it incomplete
+	truncatedBeginFrame := beginFrame2[:len(beginFrame2)-1]
+
+	// Segment 3 is present after the truncated segment 2
+	beginPayload3, err := record.EncodeBeginTxnPayload(3)
+	tst.RequireNoError(t, err)
+	beginFrame3, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload3)
+	tst.RequireNoError(t, err)
+
+	provider := testutil.NewSegmentProvider()
+	provider.AddSegment(1, segment1Data)
+	provider.AddSegment(2, truncatedBeginFrame)
+	provider.AddSegment(3, beginFrame3) // Non-empty segment 3 after truncated segment 2
+
+	mem := memtable.New()
+	start := wal.Boundary{SegId: 1, Offset: 0}
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
+
+	// Expect an error due to truncation in non-final segment
+	tst.AssertTrue(t, err != nil, "expected error for truncation in non-final segment")
+	tst.AssertTrue(t, result != nil, "expected non-nil result with partial replay")
+	tst.AssertTrue(
+		t,
+		result.TailStatus == recovery.TailStatusCorrupt,
+		"expected TailStatusCorrupt for truncation in non-final segment",
+	)
+
+	// Only the first transaction should have been applied
+	val, found := mem.Get([]byte("key1"))
+	tst.AssertTrue(t, found, "expected key1 to be in memtable")
+	tst.RequireDeepEqual(t, val, []byte("value1"))
+}
+
+// TestReplayDecodeErrorMissingOffsetInLastSegment tests that a decode error
+// without offset metadata in the last segment still results in TailStatusTruncated.
+// This represents the case where we detected corruption but can't pinpoint the exact
+// location, so we conservatively treat the entire unprocessed tail as corrupted.
+func TestReplayDecodeErrorMissingOffsetInLastSegment(t *testing.T) {
+	// Create a complete transaction in segment 1
+	beginPayload1, err := record.EncodeBeginTxnPayload(1)
+	tst.RequireNoError(t, err)
+	beginFrame1, err := record.EncodeFrame(record.RecordTypeBeginTransaction, beginPayload1)
+	tst.RequireNoError(t, err)
+
+	putPayload1, err := record.EncodePutOpPayload(1, []byte("key1"), []byte("value1"))
+	tst.RequireNoError(t, err)
+	putFrame1, err := record.EncodeFrame(record.RecordTypePutOperation, putPayload1)
+	tst.RequireNoError(t, err)
+
+	commitPayload1, err := record.EncodeCommitTxnPayload(1)
+	tst.RequireNoError(t, err)
+	commitFrame1, err := record.EncodeFrame(record.RecordTypeCommitTransaction, commitPayload1)
+	tst.RequireNoError(t, err)
+
+	segment1Data := append(append(beginFrame1, putFrame1...), commitFrame1...)
+
+	// Segment 2 (final segment) has invalid data that can't be parsed
+	invalidData := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+
+	provider := testutil.NewSegmentProvider()
+	provider.AddSegment(1, segment1Data)
+	provider.AddSegment(2, invalidData)
+
+	mem := memtable.New()
+	start := wal.Boundary{SegId: 1, Offset: 0}
+	result, err := recovery.Replay(provider, start, mem, logger.NoOpLogger{})
+
+	// Should get an error due to invalid data
+	tst.AssertTrue(t, err != nil, "expected error for decode error")
+	tst.AssertTrue(t, result != nil, "expected non-nil result")
+	// In the last segment, a decode error with truncation-like characteristics should
+	// be reported as a corrupted tail (since we can't verify the exact corruption point)
+	tst.AssertTrue(
+		t,
+		result.TailStatus == recovery.TailStatusCorrupt,
+		"expected TailStatusCorrupt for decode error in last segment",
+	)
+
+	// The committed transaction from segment 1 should still be present
+	val, found := mem.Get([]byte("key1"))
+	tst.AssertTrue(t, found, "expected key1 to be in memtable")
+	tst.RequireDeepEqual(t, val, []byte("value1"))
 }

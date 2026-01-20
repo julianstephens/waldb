@@ -265,7 +265,7 @@ Recovery uses the WAL only. On open, WALDB scans and replays WAL records sequent
 
 ### Replay Rule
 
-Replay applies **only committed transactions** to rebuild the final state.
+Replay applies **only committed transactions** to rebuild the final state. Replay requires the start boundary’s segment to exist, even if the log is empty.
 
 - `BEGIN_TXN` opens a transaction context
 - `PUT/DEL` are associated to the open txn
@@ -279,6 +279,58 @@ WALDB recovery must be idempotent:
 - applying the same WAL prefix multiple times yields the same final state
 
 This is achieved by basing state solely on WAL order and commit boundaries (not on “already applied” markers).
+
+### Replay State Machine and Invariants
+
+#### Canonical per-txn states
+
+For each `txn_id`, recovery tracks one of:
+
+- **Absent**: no `BEGIN_TXN(txn_id)` has been seen
+- **Open**: `BEGIN_TXN(txn_id)` has been seen; accumulating ops
+- **Committed**: `COMMIT_TXN(txn_id)` has been seen and applied
+- (**Ignored** is not a runtime state; it’s the outcome for any `Open` txn when replay ends before its COMMIT)
+
+#### Global rule
+
+Recovery processes records in **WAL order** (segment-id order, then increasing offset). It is not permitted to reorder or “skip invalid and continue.” (“Stop-at-first-invalid.”)
+
+#### Transition and validity table
+
+##### Table A — Allowed transitions and effects
+
+| Current state (for `txn_id`) | Next record          | Allowed? | New state      | Effect                                        |
+| ---------------------------- | -------------------- | -------: | -------------- | --------------------------------------------- |
+| Absent                       | `BEGIN_TXN(txn_id)`  |        ✅ | Open           | Start txn context                             |
+| Open                         | `PUT(txn_id, …)`     |        ✅ | Open           | Buffer op                                     |
+| Open                         | `DEL(txn_id, …)`     |        ✅ | Open           | Buffer op                                     |
+| Open                         | `COMMIT_TXN(txn_id)` |        ✅ | Committed      | **Apply buffered ops atomically to memtable** |
+| Committed                    | (end of log)         |        ✅ | Committed      | No effect                                     |
+| Open                         | (end of log)         |        ✅ | Open → Ignored | **Ignore txn entirely** (no apply)            |
+
+##### Table B — Invalid sequences (semantic corruption)
+
+| Current state | Next record          | Classification          | Required behavior               |
+| ------------- | -------------------- | ----------------------- | ------------------------------- |
+| Absent        | `PUT/DEL(txn_id, …)` | **Orphan op**           | **Stop recovery** (invalid WAL) |
+| Absent        | `COMMIT_TXN(txn_id)` | **Orphan commit**       | **Stop recovery**               |
+| Open          | `BEGIN_TXN(txn_id)`  | **Duplicate begin**     | **Stop recovery**               |
+| Committed     | `PUT/DEL(txn_id, …)` | **After-commit record** | **Stop recovery**               |
+| Committed     | `COMMIT_TXN(txn_id)` | **Double commit**       | **Stop recovery**               |
+
+#### Monotonicity invariants (global txn_id rules)
+
+##### Table C — txn_id monotonicity expectations
+
+Let `lastCommittedTxnID` be the highest txn applied so far.
+
+| Event                            | Constraint                           | If violated                     |
+| -------------------------------- | ------------------------------------ | ------------------------------- |
+| `BEGIN_TXN(txn_id)` encountered  | `txn_id > lastCommittedTxnID`        | Stop recovery (**corrupt WAL**) |
+| `COMMIT_TXN(txn_id)` encountered | must match the currently Open txn id | Stop recovery (**corrupt WAL**) |
+| Replay completes                 | `NextTxnID = lastCommittedTxnID + 1` | (output invariant)              |
+
+This is the minimal set that prevents replay from “accepting” replays that would break the allocator contract.
 
 ---
 

@@ -27,11 +27,6 @@ func (e *ReplayDecodeError) Error() string {
 }
 func (e *ReplayDecodeError) Unwrap() error { return e.Err }
 
-var (
-	ErrSegmentOrder    = errors.New("recovery: invalid segment order")
-	ErrSegmentNotFound = errors.New("recovery: starting segment not found")
-)
-
 type ReplayLogicErrorKind int
 
 const (
@@ -56,3 +51,52 @@ type ReplayLogicError struct {
 
 func (e *ReplayLogicError) Error() string { return e.Err.Error() }
 func (e *ReplayLogicError) Unwrap() error { return e.Err }
+
+type ReplaySourceErrorKind int
+
+const (
+	ReplaySourceUnknown ReplaySourceErrorKind = iota
+	ReplaySourceSegmentOrder
+	ReplaySourceSegmentOpen
+	ReplaySourceSegmentClose
+	ReplaySourceSegmentMissing
+)
+
+var (
+	ErrSegmentOrder   = errors.New("recovery: invalid segment order")
+	ErrSegmentOpen    = errors.New("recovery: failed to open segment")
+	ErrSegmentClose   = errors.New("recovery: failed to close segment")
+	ErrSegmentMissing = errors.New("recovery: starting segment missing")
+)
+
+type ReplaySourceError struct {
+	*errorutil.Coordinates
+	Kind  ReplaySourceErrorKind
+	Cause error
+	Err   error
+}
+
+func (e *ReplaySourceError) Error() string {
+	coords := ""
+	if e.Coordinates != nil {
+		coords = e.FormatCoordinates()
+	}
+	return fmt.Sprintf("recovery: source error %s kind=%d: %v (cause: %v)",
+		coords, e.Kind, e.Err, e.Cause,
+	)
+}
+
+func (e *ReplaySourceError) Unwrap() error {
+	switch e.Kind {
+	case ReplaySourceSegmentOrder:
+		return ErrSegmentOrder
+	case ReplaySourceSegmentOpen:
+		return ErrSegmentOpen
+	case ReplaySourceSegmentClose:
+		return ErrSegmentClose
+	case ReplaySourceSegmentMissing:
+		return ErrSegmentMissing
+	default:
+		return e.Err
+	}
+}
