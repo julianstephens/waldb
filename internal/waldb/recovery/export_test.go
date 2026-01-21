@@ -59,3 +59,11 @@ func (s *ReplayState) Inflight() map[uint64]*TxnBuf {
 func (s *ReplayState) MaxCommitted() uint64 {
 	return s.maxCommitted
 }
+
+// GetStateError is a helper to get the Kind from a StateError
+func GetStateError(err error) *StateError {
+	if stateErr, ok := err.(*StateError); ok {
+		return stateErr
+	}
+	return nil
+}

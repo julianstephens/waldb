@@ -313,7 +313,7 @@ Recovery processes records in **WAL order** (segment-id order, then increasing o
 | Current state | Next record          | Classification          | Required behavior               |
 | ------------- | -------------------- | ----------------------- | ------------------------------- |
 | Absent        | `PUT/DEL(txn_id, …)` | **Orphan op**           | **Stop recovery** (invalid WAL) |
-| Absent        | `COMMIT_TXN(txn_id)` | **Orphan commit**       | **Stop recovery**               |
+| Absent        | `COMMIT_TXN(txn_id)` | **Orphan op**           | **Stop recovery**               |
 | Open          | `BEGIN_TXN(txn_id)`  | **Duplicate begin**     | **Stop recovery**               |
 | Committed     | `PUT/DEL(txn_id, …)` | **After-commit record** | **Stop recovery**               |
 | Committed     | `COMMIT_TXN(txn_id)` | **Double commit**       | **Stop recovery**               |

@@ -7,11 +7,12 @@ import (
 
 var (
 	ErrOrphanOp        = errors.New("recovery: op outside transaction")
-	ErrCommitNoTxn     = errors.New("recovery: commit with no active transaction")
 	ErrDoubleBegin     = errors.New("recovery: begin while transaction active")
+	ErrTxnInvalidID    = errors.New("recovery: invalid txn_id")
 	ErrTxnMismatch     = errors.New("recovery: txn_id mismatch")
 	ErrTxnNotMonotonic = errors.New("recovery: non-monotonic txn_id")
 	ErrAfterCommit     = errors.New("recovery: record after commit")
+	ErrDoubleCommit    = errors.New("recovery: double commit")
 )
 
 type StateErrorKind uint8
@@ -19,11 +20,12 @@ type StateErrorKind uint8
 const (
 	StateUnknown StateErrorKind = iota
 	StateOrphanOp
-	StateCommitNoTxn
 	StateDoubleBegin
+	StateTxnInvalidID
 	StateTxnMismatch
 	StateTxnNotMonotonic
 	StateAfterCommit
+	StateDoubleCommit
 )
 
 type StateError struct {
@@ -46,30 +48,41 @@ type StateError struct {
 func (e *StateError) Error() string {
 	// Keep it compact and stable; replay will add coordinates.
 	switch e.Kind {
+	case StateOrphanOp:
+		return fmt.Sprintf("op %q outside transaction (txn_id=%d)", e.Op, e.TxnID)
+	case StateDoubleBegin:
+		return fmt.Sprintf("begin while transaction active (txn_id=%d)", e.TxnID)
 	case StateTxnMismatch:
-		return fmt.Sprintf("recovery state error: txn mismatch have=%d want=%d", e.HaveTxnID, e.WantTxnID)
+		return fmt.Sprintf("txn_id mismatch on %q: have %d, want %d", e.Op, e.HaveTxnID, e.WantTxnID)
 	case StateTxnNotMonotonic:
-		return fmt.Sprintf("recovery state error: txn not monotonic have=%d want>=%d", e.HaveTxnID, e.WantTxnID)
+		return fmt.Sprintf("non-monotonic txn_id on %q: have %d, want >= %d", e.Op, e.HaveTxnID, e.WantTxnID)
+	case StateTxnInvalidID:
+		return fmt.Sprintf("invalid txn_id on %q: %d", e.Op, e.TxnID)
+	case StateAfterCommit:
+		return fmt.Sprintf("record %q after commit (txn_id=%d)", e.Op, e.TxnID)
+	case StateDoubleCommit:
+		return fmt.Sprintf("double commit (txn_id=%d)", e.TxnID)
 	default:
-		return "recovery state error"
+		return "unknown state error"
 	}
 }
 
 func (e *StateError) Unwrap() error {
-	// Return the sentinel corresponding to Kind.
 	switch e.Kind {
 	case StateOrphanOp:
 		return ErrOrphanOp
-	case StateCommitNoTxn:
-		return ErrCommitNoTxn
 	case StateDoubleBegin:
 		return ErrDoubleBegin
+	case StateTxnInvalidID:
+		return ErrTxnInvalidID
 	case StateTxnMismatch:
 		return ErrTxnMismatch
 	case StateTxnNotMonotonic:
 		return ErrTxnNotMonotonic
 	case StateAfterCommit:
 		return ErrAfterCommit
+	case StateDoubleCommit:
+		return ErrDoubleCommit
 	default:
 		return nil
 	}
