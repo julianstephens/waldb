@@ -10,6 +10,68 @@ import (
 	"github.com/julianstephens/waldb/internal/waldb/wal"
 )
 
+// TestOpenLogBehaviors tests various OpenLog behaviors
+func TestOpenLogBehaviors(t *testing.T) {
+	testCases := []struct {
+		name        string
+		setup       func() string
+		expectError bool
+		expectDir   bool
+	}{
+		{
+			name: "creates_directory",
+			setup: func() string {
+				tempDir := t.TempDir()
+				return filepath.Join(tempDir, "new_wal_dir")
+			},
+			expectError: false,
+			expectDir:   true,
+		},
+		{
+			name: "creates_first_segment",
+			setup: func() string {
+				return t.TempDir()
+			},
+			expectError: false,
+			expectDir:   true,
+		},
+		{
+			name: "invalid_path",
+			setup: func() string {
+				return "/nonexistent/path/to/wal/that/cannot/be/created/waldb"
+			},
+			expectError: true,
+			expectDir:   false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			walDir := tc.setup()
+
+			provider, err := wal.OpenLog(walDir, wal.LogOpts{}, logger.NoOpLogger{})
+
+			if tc.expectError {
+				tst.AssertTrue(t, err != nil, "expected error for "+tc.name)
+			} else {
+				tst.RequireNoError(t, err)
+				tst.AssertNotNil(t, provider, "expected non-nil provider")
+
+				// Verify directory was created
+				if tc.expectDir {
+					_, err = os.Stat(walDir)
+					tst.RequireNoError(t, err)
+
+					// Verify first segment was created
+					segIds := provider.SegmentIDs()
+					tst.RequireDeepEqual(t, len(segIds), 1)
+					tst.RequireDeepEqual(t, segIds[0], uint64(1))
+				}
+			}
+		})
+	}
+}
+
 // TestOpenLogCreatesDirectory tests that OpenLog creates a WAL directory if it doesn't exist
 func TestOpenLogCreatesDirectory(t *testing.T) {
 	tempDir := t.TempDir()
@@ -66,7 +128,50 @@ func TestSegmentIDs(t *testing.T) {
 	tst.RequireDeepEqual(t, segIds[0], uint64(1))
 }
 
-// TestOpenSegmentExistingSegment tests opening an existing segment
+// TestOpenSegmentOperations tests opening segments (existing and non-existent)
+func TestOpenSegmentOperations(t *testing.T) {
+	testCases := []struct {
+		name        string
+		segmentID   uint64
+		shouldExist bool
+		expectError bool
+	}{
+		{
+			name:        "open_existing_segment",
+			segmentID:   1,
+			shouldExist: true,
+			expectError: false,
+		},
+		{
+			name:        "open_nonexistent_segment",
+			segmentID:   999,
+			shouldExist: false,
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+
+			provider, err := wal.OpenLog(tempDir, wal.LogOpts{}, logger.NoOpLogger{})
+			tst.RequireNoError(t, err)
+
+			// Try to open the segment
+			reader, err := provider.OpenSegment(tc.segmentID)
+
+			if tc.expectError {
+				tst.AssertTrue(t, err != nil, "expected error opening segment "+string(rune(tc.segmentID)))
+			} else {
+				tst.RequireNoError(t, err)
+				tst.AssertNotNil(t, reader, "expected non-nil reader")
+				tst.RequireDeepEqual(t, reader.SegID(), tc.segmentID)
+			}
+		})
+	}
+}
+
+// TestOpenSegmentExistingSegment tests opening an existing segment (deprecated - use TestOpenSegmentOperations)
 func TestOpenSegmentExistingSegment(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -82,7 +187,7 @@ func TestOpenSegmentExistingSegment(t *testing.T) {
 	tst.RequireDeepEqual(t, reader.SegID(), uint64(1))
 }
 
-// TestOpenSegmentNonExistent tests opening a non-existent segment
+// TestOpenSegmentNonExistent tests opening a non-existent segment (deprecated - use TestOpenSegmentOperations)
 func TestOpenSegmentNonExistent(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -92,17 +197,6 @@ func TestOpenSegmentNonExistent(t *testing.T) {
 	// Try to open non-existent segment
 	_, err = provider.OpenSegment(999)
 	tst.AssertTrue(t, err != nil, "expected error opening non-existent segment")
-}
-
-// TestOpenLogInvalidPath tests error handling for invalid directory
-func TestOpenLogInvalidPath(t *testing.T) {
-	// Try to open with a path that has a non-existent parent
-	invalidPath := "/nonexistent/path/to/wal/that/cannot/be/created/waldb"
-
-	_, err := wal.OpenLog(invalidPath, wal.LogOpts{}, logger.NoOpLogger{})
-	if err == nil {
-		t.Fatal("expected error opening log with invalid path")
-	}
 }
 
 // TestMultipleOpenLogInstances tests opening multiple logs on same directory

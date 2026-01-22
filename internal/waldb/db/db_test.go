@@ -34,36 +34,111 @@ func TestOpenEmptyPath(t *testing.T) {
 	tst.AssertNotNil(t, err, "expected error for empty path")
 }
 
-func TestCommitValidBatch(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
+func TestCommitOperations_TableDriven(t *testing.T) {
+	testCases := []struct {
+		name        string
+		setupBatch  func() *txn.Batch
+		expectError bool
+	}{
+		{
+			name: "ValidBatch",
+			setupBatch: func() *txn.Batch {
+				batch := txn.NewBatch()
+				batch.Put([]byte("key1"), []byte("value1"))
+				return batch
+			},
+			expectError: false,
+		},
+		{
+			name: "MultiplePuts",
+			setupBatch: func() *txn.Batch {
+				batch := txn.NewBatch()
+				batch.Put([]byte("key1"), []byte("value1"))
+				batch.Put([]byte("key2"), []byte("value2"))
+				batch.Put([]byte("key3"), []byte("value3"))
+				return batch
+			},
+			expectError: false,
+		},
+		{
+			name: "EmptyBatch",
+			setupBatch: func() *txn.Batch {
+				return txn.NewBatch()
+			},
+			expectError: true,
+		},
+		{
+			name: "InvalidKeyNil",
+			setupBatch: func() *txn.Batch {
+				batch := txn.NewBatch()
+				batch.Put(nil, []byte("value"))
+				return batch
+			},
+			expectError: true,
+		},
+		{
+			name: "OversizeKey",
+			setupBatch: func() *txn.Batch {
+				batch := txn.NewBatch()
+				oversizeKey := make([]byte, 4097) // MaxKeySize is 4096
+				batch.Put(oversizeKey, []byte("value"))
+				return batch
+			},
+			expectError: true,
+		},
+		{
+			name: "LargeValue",
+			setupBatch: func() *txn.Batch {
+				batch := txn.NewBatch()
+				largeValue := make([]byte, 1024*1024) // 1MB value
+				batch.Put([]byte("large_key"), largeValue)
+				return batch
+			},
+			expectError: false,
+		},
+		{
+			name: "EmptyValue",
+			setupBatch: func() *txn.Batch {
+				batch := txn.NewBatch()
+				batch.Put([]byte("key"), []byte{})
+				return batch
+			},
+			expectError: false,
+		},
+		{
+			name: "BinaryData",
+			setupBatch: func() *txn.Batch {
+				batch := txn.NewBatch()
+				binaryKey := []byte{0x00, 0x01, 0x02, 0xFF}
+				binaryValue := []byte{0xFF, 0xFE, 0xFD, 0x00}
+				batch.Put(binaryKey, binaryValue)
+				return batch
+			},
+			expectError: false,
+		},
+	}
 
-	batch := txn.NewBatch()
-	batch.Put([]byte("key1"), []byte("value1"))
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := waldb.Open(t.TempDir() + "/test.db")
+			tst.RequireNoError(t, err)
+			defer func() {
+				_ = db.Close()
+			}()
 
-	txnId, err := db.Commit(batch)
-	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
-}
+			batch := tc.setupBatch()
+			txnId, err := db.Commit(batch)
 
-func TestCommitMultiplePuts(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
-
-	batch := txn.NewBatch()
-	batch.Put([]byte("key1"), []byte("value1"))
-	batch.Put([]byte("key2"), []byte("value2"))
-	batch.Put([]byte("key3"), []byte("value3"))
-
-	txnId, err := db.Commit(batch)
-	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
+			if tc.expectError {
+				tst.AssertNotNil(t, err, "expected error for %s", tc.name)
+				tst.AssertEqual(t, txnId, 0, "expected zero txnId on error")
+				tst.AssertTrue(t, errors.Is(err, waldb.ErrCommitInvalidBatch), "expected ErrCommitInvalidBatch")
+			} else {
+				tst.RequireNoError(t, err)
+				tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
+			}
+		})
+	}
 }
 
 func TestCommitMultipleDeletes(t *testing.T) {
@@ -115,134 +190,6 @@ func TestCommitMixedOperations(t *testing.T) {
 	txnId2, err := db.Commit(batch2)
 	tst.RequireNoError(t, err)
 	tst.AssertGreaterThan(t, txnId2, txnId1, "expected txnId2 > txnId1")
-}
-
-func TestCommitEmptyBatch(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
-
-	batch := txn.NewBatch()
-	txnId, err := db.Commit(batch)
-	tst.AssertNotNil(t, err, "expected error for empty batch")
-	tst.AssertEqual(t, txnId, 0, "expected zero txnId on error")
-
-	// Verify it's a commit invalid batch error
-	var dbErr *waldb.DBError
-	tst.AssertTrue(t, errors.As(err, &dbErr), "expected DBError")
-	tst.AssertTrue(t, errors.Is(err, waldb.ErrCommitInvalidBatch), "expected ErrCommitInvalidBatch")
-}
-
-func TestCommitInvalidKey(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
-
-	batch := txn.NewBatch()
-	batch.Put(nil, []byte("value"))
-
-	txnId, err := db.Commit(batch)
-	tst.AssertNotNil(t, err, "expected error for nil key")
-	tst.AssertEqual(t, txnId, 0, "expected zero txnId on error")
-	tst.AssertTrue(t, errors.Is(err, waldb.ErrCommitInvalidBatch), "expected ErrCommitInvalidBatch")
-}
-
-func TestCommitOversizeKey(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
-
-	batch := txn.NewBatch()
-	oversizeKey := make([]byte, 4097) // MaxKeySize is 4096
-	batch.Put(oversizeKey, []byte("value"))
-
-	txnId, err := db.Commit(batch)
-	tst.AssertNotNil(t, err, "expected error for oversized key")
-	tst.AssertEqual(t, txnId, 0, "expected zero txnId on error")
-	tst.AssertTrue(t, errors.Is(err, waldb.ErrCommitInvalidBatch), "expected ErrCommitInvalidBatch")
-}
-
-func TestMultipleSequentialCommits(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
-
-	// Commit 1
-	batch1 := txn.NewBatch()
-	batch1.Put([]byte("key1"), []byte("value1"))
-	txnId1, err := db.Commit(batch1)
-	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnId1, 0, "expected non-zero txnId")
-
-	// Commit 2
-	batch2 := txn.NewBatch()
-	batch2.Put([]byte("key2"), []byte("value2"))
-	txnId2, err := db.Commit(batch2)
-	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnId2, txnId1, "expected txnId2 > txnId1")
-
-	// Commit 3
-	batch3 := txn.NewBatch()
-	batch3.Put([]byte("key3"), []byte("value3"))
-	txnId3, err := db.Commit(batch3)
-	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnId3, txnId2, "expected txnId3 > txnId2")
-}
-
-func TestCommitLargeValue(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
-
-	batch := txn.NewBatch()
-	largeValue := make([]byte, 1024*1024) // 1MB value
-	batch.Put([]byte("large_key"), largeValue)
-
-	txnId, err := db.Commit(batch)
-	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
-}
-
-func TestCommitEmptyValue(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
-
-	batch := txn.NewBatch()
-	batch.Put([]byte("key"), []byte{}) // Empty value
-
-	txnId, err := db.Commit(batch)
-	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
-}
-
-func TestCommitBinaryData(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
-	tst.RequireNoError(t, err)
-	defer func() {
-		_ = db.Close()
-	}()
-
-	batch := txn.NewBatch()
-	binaryKey := []byte{0x00, 0x01, 0x02, 0xFF}
-	binaryValue := []byte{0xFF, 0xFE, 0xFD, 0x00}
-	batch.Put(binaryKey, binaryValue)
-
-	txnId, err := db.Commit(batch)
-	tst.RequireNoError(t, err)
-	tst.AssertGreaterThan(t, txnId, 0, "expected non-zero txnId")
 }
 
 func TestOpenCreatesDirectory(t *testing.T) {

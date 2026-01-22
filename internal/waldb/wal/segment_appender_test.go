@@ -211,7 +211,58 @@ func TestAppendLargePayload(t *testing.T) {
 	}
 }
 
-// TestAppendAfterClose tests appending after closing the writer
+// TestOperationsAfterClose tests that operations fail after closing the writer
+func TestOperationsAfterClose(t *testing.T) {
+	testCases := []struct {
+		name      string
+		operation func(writer wal.LogAppender) error
+	}{
+		{
+			name: "append_after_close",
+			operation: func(writer wal.LogAppender) error {
+				payload := createBeginPayload(1)
+				_, err := writer.Append(record.RecordTypeBeginTransaction, payload)
+				return err
+			},
+		},
+		{
+			name: "flush_after_close",
+			operation: func(writer wal.LogAppender) error {
+				return writer.Flush()
+			},
+		},
+		{
+			name: "fsync_after_close",
+			operation: func(writer wal.LogAppender) error {
+				return writer.FSync()
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := createTempSegmentFile(t)
+			defer file.Close() //nolint:errcheck
+
+			writer, err := wal.NewSegmentAppender(file)
+			if err != nil {
+				t.Fatalf("unexpected error creating writer: %v", err)
+			}
+
+			if err := writer.Close(); err != nil {
+				t.Fatalf("unexpected error closing writer: %v", err)
+			}
+
+			// Operation should fail on closed writer
+			err = tc.operation(writer)
+			if err == nil {
+				t.Fatalf("expected error for %s", tc.name)
+			}
+		})
+	}
+}
+
+// TestAppendAfterClose tests appending after closing the writer (deprecated - use TestOperationsAfterClose)
 func TestAppendAfterClose(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -232,29 +283,7 @@ func TestAppendAfterClose(t *testing.T) {
 	}
 }
 
-// TestFlushSingleRecord tests flushing after appending a record
-func TestFlushSingleRecord(t *testing.T) {
-	file := createTempSegmentFile(t)
-	defer file.Close() //nolint:errcheck
-
-	writer, err := wal.NewSegmentAppender(file)
-	if err != nil {
-		t.Fatalf("unexpected error creating writer: %v", err)
-	}
-	defer writer.Close() //nolint:errcheck
-
-	payload := createBeginPayload(1)
-	_, err = writer.Append(record.RecordTypeBeginTransaction, payload)
-	if err != nil {
-		t.Fatalf("unexpected error appending: %v", err)
-	}
-
-	if err := writer.Flush(); err != nil {
-		t.Fatalf("unexpected error flushing: %v", err)
-	}
-}
-
-// TestFlushAfterClose tests flushing after closing
+// TestFlushAfterClose tests flushing after closing (deprecated - use TestOperationsAfterClose)
 func TestFlushAfterClose(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -274,29 +303,7 @@ func TestFlushAfterClose(t *testing.T) {
 	}
 }
 
-// TestFSyncSingleRecord tests fsyncing after appending a record
-func TestFSyncSingleRecord(t *testing.T) {
-	file := createTempSegmentFile(t)
-	defer file.Close() //nolint:errcheck
-
-	writer, err := wal.NewSegmentAppender(file)
-	if err != nil {
-		t.Fatalf("unexpected error creating writer: %v", err)
-	}
-	defer writer.Close() //nolint:errcheck
-
-	payload := createBeginPayload(1)
-	_, err = writer.Append(record.RecordTypeBeginTransaction, payload)
-	if err != nil {
-		t.Fatalf("unexpected error appending: %v", err)
-	}
-
-	if err := writer.FSync(); err != nil {
-		t.Fatalf("unexpected error fsyncing: %v", err)
-	}
-}
-
-// TestFSyncAfterClose tests fsyncing after closing
+// TestFSyncAfterClose tests fsyncing after closing (deprecated - use TestOperationsAfterClose)
 func TestFSyncAfterClose(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -567,7 +574,91 @@ func TestWrittenDataReadability(t *testing.T) {
 	}
 }
 
-// TestAppendInvalidRecordType tests appending with an invalid record type
+// TestAppendValidationErrors tests various append validation error conditions
+func TestAppendValidationErrors(t *testing.T) {
+	testCases := []struct {
+		name        string
+		recordType  record.RecordType
+		payloadFunc func() []byte
+	}{
+		{
+			name:       "invalid_record_type",
+			recordType: record.RecordType(255),
+			payloadFunc: func() []byte {
+				return []byte("invalid")
+			},
+		},
+		{
+			name:       "begin_invalid_payload_size",
+			recordType: record.RecordTypeBeginTransaction,
+			payloadFunc: func() []byte {
+				return make([]byte, 4) // Wrong size
+			},
+		},
+		{
+			name:       "commit_invalid_payload_size",
+			recordType: record.RecordTypeCommitTransaction,
+			payloadFunc: func() []byte {
+				return make([]byte, 10) // Wrong size
+			},
+		},
+		{
+			name:       "put_insufficient_payload",
+			recordType: record.RecordTypePutOperation,
+			payloadFunc: func() []byte {
+				// Put requires at least TxnIdSize + 2*PayloadHeaderSize
+				return make([]byte, record.TxnIdSize)
+			},
+		},
+		{
+			name:       "delete_insufficient_payload",
+			recordType: record.RecordTypeDeleteOperation,
+			payloadFunc: func() []byte {
+				// Delete requires at least TxnIdSize + PayloadHeaderSize
+				return make([]byte, record.TxnIdSize)
+			},
+		},
+		{
+			name:       "put_payload_too_large",
+			recordType: record.RecordTypePutOperation,
+			payloadFunc: func() []byte {
+				// Create payload larger than MaxRecordSize
+				oversizeValue := make([]byte, record.MaxRecordSize+1)
+				return createPutPayload(1, []byte("key"), oversizeValue)
+			},
+		},
+		{
+			name:       "delete_oversized_key",
+			recordType: record.RecordTypeDeleteOperation,
+			payloadFunc: func() []byte {
+				// Create key larger than MaxKeySize
+				oversizeKey := make([]byte, record.MaxKeySize+1)
+				return createDeletePayload(1, oversizeKey)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := createTempSegmentFile(t)
+			defer file.Close() //nolint:errcheck
+
+			writer, err := wal.NewSegmentAppender(file)
+			if err != nil {
+				t.Fatalf("unexpected error creating writer: %v", err)
+			}
+			defer writer.Close() //nolint:errcheck
+
+			payload := tc.payloadFunc()
+			_, err = writer.Append(tc.recordType, payload)
+			if err == nil {
+				t.Fatalf("expected error for %s", tc.name)
+			}
+		})
+	}
+}
+
+// TestAppendInvalidRecordType tests appending with an invalid record type (deprecated - use TestAppendValidationErrors)
 func TestAppendInvalidRecordType(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -586,7 +677,7 @@ func TestAppendInvalidRecordType(t *testing.T) {
 	}
 }
 
-// TestAppendBeginInvalidPayloadSize tests appending Begin with wrong payload size
+// TestAppendBeginInvalidPayloadSize tests appending Begin with wrong payload size (deprecated - use TestAppendValidationErrors)
 func TestAppendBeginInvalidPayloadSize(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -605,7 +696,7 @@ func TestAppendBeginInvalidPayloadSize(t *testing.T) {
 	}
 }
 
-// TestAppendCommitInvalidPayloadSize tests appending Commit with wrong payload size
+// TestAppendCommitInvalidPayloadSize tests appending Commit with wrong payload size (deprecated - use TestAppendValidationErrors)
 func TestAppendCommitInvalidPayloadSize(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -624,7 +715,7 @@ func TestAppendCommitInvalidPayloadSize(t *testing.T) {
 	}
 }
 
-// TestAppendPutInsufficientPayload tests appending Put with too-small payload
+// TestAppendPutInsufficientPayload tests appending Put with too-small payload (deprecated - use TestAppendValidationErrors)
 func TestAppendPutInsufficientPayload(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -643,7 +734,7 @@ func TestAppendPutInsufficientPayload(t *testing.T) {
 	}
 }
 
-// TestAppendDeleteInsufficientPayload tests appending Delete with too-small payload
+// TestAppendDeleteInsufficientPayload tests appending Delete with too-small payload (deprecated - use TestAppendValidationErrors)
 func TestAppendDeleteInsufficientPayload(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -662,7 +753,7 @@ func TestAppendDeleteInsufficientPayload(t *testing.T) {
 	}
 }
 
-// TestAppendPutPayloadTooLarge tests appending with payload exceeding MaxRecordSize
+// TestAppendPutPayloadTooLarge tests appending with payload exceeding MaxRecordSize (deprecated - use TestAppendValidationErrors)
 func TestAppendPutPayloadTooLarge(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -683,7 +774,7 @@ func TestAppendPutPayloadTooLarge(t *testing.T) {
 	}
 }
 
-// TestAppendOversizeDeleteKey tests appending Delete with key exceeding MaxKeySize
+// TestAppendOversizeDeleteKey tests appending Delete with key exceeding MaxKeySize (deprecated - use TestAppendValidationErrors)
 func TestAppendOversizeDeleteKey(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -704,7 +795,56 @@ func TestAppendOversizeDeleteKey(t *testing.T) {
 	}
 }
 
-// TestAppendReturnError checks that Append returns SegmentWriteError on validation failure
+// TestOperationErrorHandling tests error handling for flush and fsync operations on closed writers
+func TestOperationErrorHandling(t *testing.T) {
+	testCases := []struct {
+		name      string
+		operation func(*testing.T, wal.LogAppender) error
+	}{
+		{
+			name: "flush_returns_error_on_closed_writer",
+			operation: func(t *testing.T, writer wal.LogAppender) error {
+				return writer.Flush()
+			},
+		},
+		{
+			name: "fsync_returns_error_on_closed_file",
+			operation: func(t *testing.T, writer wal.LogAppender) error {
+				return writer.FSync()
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := createTempSegmentFile(t)
+			defer file.Close() //nolint:errcheck
+
+			writer, err := wal.NewSegmentAppender(file)
+			if err != nil {
+				t.Fatalf("unexpected error creating writer: %v", err)
+			}
+
+			if err := writer.Close(); err != nil {
+				t.Fatalf("unexpected error closing: %v", err)
+			}
+
+			// Run operation on closed writer
+			operationErr := tc.operation(t, writer)
+			if operationErr == nil {
+				t.Fatalf("expected error for %s", tc.name)
+			}
+
+			// Check that it's a SegmentAppendError
+			var segErr *wal.SegmentAppendError
+			if !errors.As(operationErr, &segErr) {
+				t.Fatal("expected SegmentAppendError")
+			}
+		})
+	}
+}
+
+// TestAppendReturnError checks that Append returns SegmentWriteError on validation failure (deprecated - use TestOperationErrorHandling)
 func TestAppendReturnError(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck
@@ -738,7 +878,7 @@ func TestAppendReturnError(t *testing.T) {
 	tst.RequireDeepEqual(t, segErr.RecordType, record.RecordType(255))
 }
 
-// TestFlushOnClosedWriter checks that Flush returns error on closed writer
+// TestFlushOnClosedWriter checks that Flush returns error on closed writer (deprecated - use TestOperationErrorHandling)
 func TestFlushOnClosedWriter(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck,gosec
@@ -760,7 +900,7 @@ func TestFlushOnClosedWriter(t *testing.T) {
 	tst.AssertTrue(t, errors.As(err, &segErr), "expected SegmentWriteError")
 }
 
-// TestFSyncReturnError checks that FSync returns SegmentWriteError
+// TestFSyncReturnError checks that FSync returns SegmentWriteError (deprecated - use TestOperationErrorHandling)
 func TestFSyncReturnError(t *testing.T) {
 	file := createTempSegmentFile(t)
 	defer file.Close() //nolint:errcheck

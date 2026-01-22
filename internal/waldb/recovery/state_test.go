@@ -485,3 +485,155 @@ func TestStateTransitions_IgnoredTransaction(t *testing.T) {
 	_, found := mem.Get([]byte("key1"))
 	tst.AssertFalse(t, found, "key1 should NOT exist (transaction not committed)")
 }
+
+// ============================================================================
+// SEMANTIC CORRUPTION TRUTH TABLE TEST
+// ============================================================================
+
+// SemanticCorruptionCase encodes a semantic corruption scenario from DESIGN.md Table B
+type SemanticCorruptionCase struct {
+	name              string
+	txnID             uint64
+	preCondition      func(*ReplayState, uint64) error // Setup state
+	operation         func(*ReplayState, uint64) error // Attempt forbidden operation
+	expectedErrorKind StateErrorKind                   // Must error immediately
+	tableRef          string                           // Reference to Table B row
+}
+
+// TestStateTransitions_SemanticCorruptionTruthTable validates Table B (semantic corruption)
+// from DESIGN.md: all invalid state transitions must error immediately with correct ErrorKind.
+//
+// Table B from DESIGN.md:
+//
+//	| Current state | Next record          | Classification          | Required behavior               |
+//	| ------------- | -------------------- | ----------------------- | ------------------------------- |
+//	| Absent        | `PUT/DEL(txn_id, …)` | **Orphan op**           | **Stop recovery** (invalid WAL) |
+//	| Absent        | `COMMIT_TXN(txn_id)` | **Orphan op**           | **Stop recovery**               |
+//	| Open          | `BEGIN_TXN(txn_id)`  | **Duplicate begin**     | **Stop recovery**               |
+//	| Committed     | `PUT/DEL(txn_id, …)` | **After-commit record** | **Stop recovery**               |
+//	| Committed     | `COMMIT_TXN(txn_id)` | **Double commit**       | **Stop recovery**               |
+func TestStateTransitions_SemanticCorruptionTruthTable(t *testing.T) {
+	tests := []SemanticCorruptionCase{
+		// ===== Absent state (no txn_id in inflight) =====
+		{
+			name:         "Absent → PUT (orphan op)",
+			txnID:        1,
+			preCondition: func(rs *ReplayState, txnID uint64) error { return nil }, // Absent = no setup
+			operation: func(rs *ReplayState, txnID uint64) error {
+				return rs.OnPut(record.PutOpPayload{TxnID: txnID, Key: []byte("k"), Value: []byte("v")})
+			},
+			expectedErrorKind: StateOrphanOp,
+			tableRef:          "Table B row 1: Absent → PUT/DEL",
+		},
+		{
+			name:         "Absent → DEL (orphan op)",
+			txnID:        2,
+			preCondition: func(rs *ReplayState, txnID uint64) error { return nil }, // Absent = no setup
+			operation: func(rs *ReplayState, txnID uint64) error {
+				return rs.OnDel(record.DeleteOpPayload{TxnID: txnID, Key: []byte("k")})
+			},
+			expectedErrorKind: StateOrphanOp,
+			tableRef:          "Table B row 1: Absent → PUT/DEL",
+		},
+		{
+			name:         "Absent → COMMIT (orphan op)",
+			txnID:        3,
+			preCondition: func(rs *ReplayState, txnID uint64) error { return nil }, // Absent = no setup
+			operation: func(rs *ReplayState, txnID uint64) error {
+				return rs.OnCommit(record.BeginCommitTransactionPayload{TxnID: txnID})
+			},
+			expectedErrorKind: StateOrphanOp,
+			tableRef:          "Table B row 2: Absent → COMMIT_TXN",
+		},
+
+		// ===== Open state (txn_id in inflight, not yet committed) =====
+		{
+			name:  "Open → BEGIN (duplicate begin)",
+			txnID: 1,
+			preCondition: func(rs *ReplayState, txnID uint64) error {
+				return rs.OnBegin(record.BeginCommitTransactionPayload{TxnID: txnID})
+			},
+			operation: func(rs *ReplayState, txnID uint64) error {
+				return rs.OnBegin(record.BeginCommitTransactionPayload{TxnID: txnID})
+			},
+			expectedErrorKind: StateDoubleBegin,
+			tableRef:          "Table B row 3: Open → BEGIN_TXN",
+		},
+
+		// ===== Committed state (txn_id has been committed) =====
+		{
+			name:  "Committed → PUT (after-commit record)",
+			txnID: 1,
+			preCondition: func(rs *ReplayState, txnID uint64) error {
+				if err := rs.OnBegin(record.BeginCommitTransactionPayload{TxnID: txnID}); err != nil {
+					return err
+				}
+				return rs.OnCommit(record.BeginCommitTransactionPayload{TxnID: txnID})
+			},
+			operation: func(rs *ReplayState, txnID uint64) error {
+				return rs.OnPut(record.PutOpPayload{TxnID: txnID, Key: []byte("k"), Value: []byte("v")})
+			},
+			expectedErrorKind: StateAfterCommit,
+			tableRef:          "Table B row 4: Committed → PUT/DEL",
+		},
+		{
+			name:  "Committed → DEL (after-commit record)",
+			txnID: 2,
+			preCondition: func(rs *ReplayState, txnID uint64) error {
+				if err := rs.OnBegin(record.BeginCommitTransactionPayload{TxnID: txnID}); err != nil {
+					return err
+				}
+				return rs.OnCommit(record.BeginCommitTransactionPayload{TxnID: txnID})
+			},
+			operation: func(rs *ReplayState, txnID uint64) error {
+				return rs.OnDel(record.DeleteOpPayload{TxnID: txnID, Key: []byte("k")})
+			},
+			expectedErrorKind: StateAfterCommit,
+			tableRef:          "Table B row 4: Committed → PUT/DEL",
+		},
+		{
+			name:  "Committed → COMMIT (double commit)",
+			txnID: 3,
+			preCondition: func(rs *ReplayState, txnID uint64) error {
+				if err := rs.OnBegin(record.BeginCommitTransactionPayload{TxnID: txnID}); err != nil {
+					return err
+				}
+				return rs.OnCommit(record.BeginCommitTransactionPayload{TxnID: txnID})
+			},
+			operation: func(rs *ReplayState, txnID uint64) error {
+				return rs.OnCommit(record.BeginCommitTransactionPayload{TxnID: txnID})
+			},
+			expectedErrorKind: StateDoubleCommit,
+			tableRef:          "Table B row 5: Committed → COMMIT_TXN",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rs := newReplayState(memtable.New())
+
+			// Apply pre-condition to set up state
+			if err := tc.preCondition(rs, tc.txnID); err != nil {
+				t.Fatalf("precondition failed: %v", err)
+			}
+
+			// Attempt forbidden operation
+			err := tc.operation(rs, tc.txnID)
+
+			// Must error immediately
+			tst.AssertNotNil(t, err, "expected error for semantic corruption ("+tc.tableRef+")")
+
+			// Error must be of correct kind
+			stateErr := GetStateError(err)
+			if stateErr == nil {
+				t.Fatalf("expected StateError but got: %T: %v", err, err)
+			}
+			tst.AssertEqual(
+				t,
+				stateErr.Kind,
+				tc.expectedErrorKind,
+				"error kind mismatch for "+tc.tableRef,
+			)
+		})
+	}
+}

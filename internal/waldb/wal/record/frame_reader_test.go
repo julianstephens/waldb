@@ -28,265 +28,101 @@ func encodeRecord(recordType record.RecordType, payload []byte) []byte {
 	return buf.Bytes()
 }
 
-func TestNextRoundtripBeginTransaction(t *testing.T) {
-	payload := []byte("transaction-id-123")
-	encoded := encodeRecord(record.RecordTypeBeginTransaction, payload)
-
-	reader := record.NewFrameReader(bytes.NewReader(encoded))
-	rec, err := reader.Next()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// TestNextRoundtrip_TableDriven consolidates all roundtrip tests for different record types
+func TestNextRoundtrip_TableDriven(t *testing.T) {
+	testCases := []struct {
+		name       string
+		recordType record.RecordType
+		payload    []byte
+	}{
+		{"BeginTransaction", record.RecordTypeBeginTransaction, []byte("transaction-id-123")},
+		{"CommitTransaction", record.RecordTypeCommitTransaction, []byte("commit-data")},
+		{"PutOperation", record.RecordTypePutOperation, []byte("key=value")},
+		{"DeleteOperation", record.RecordTypeDeleteOperation, []byte("key-to-delete")},
 	}
-	if rec.Record.Type != record.RecordTypeBeginTransaction {
-		t.Errorf("expected type %v, got %v", record.RecordTypeBeginTransaction, rec.Record.Type)
-	}
-	if !bytes.Equal(rec.Record.Payload, payload) {
-		t.Errorf("expected payload %v, got %v", payload, rec.Record.Payload)
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded := encodeRecord(tc.recordType, tc.payload)
+			reader := record.NewFrameReader(bytes.NewReader(encoded))
+			rec, err := reader.Next()
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if rec.Record.Type != tc.recordType {
+				t.Errorf("expected type %v, got %v", tc.recordType, rec.Record.Type)
+			}
+			if !bytes.Equal(rec.Record.Payload, tc.payload) {
+				t.Errorf("payload mismatch")
+			}
+		})
 	}
 }
 
-func TestNextRoundtripCommitTransaction(t *testing.T) {
-	payload := []byte("commit-data")
-	encoded := encodeRecord(record.RecordTypeCommitTransaction, payload)
-
-	reader := record.NewFrameReader(bytes.NewReader(encoded))
-	rec, err := reader.Next()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rec.Record.Type != record.RecordTypeCommitTransaction {
-		t.Errorf("expected type %v, got %v", record.RecordTypeCommitTransaction, rec.Record.Type)
-	}
-	if !bytes.Equal(rec.Record.Payload, payload) {
-		t.Errorf("expected payload %v, got %v", payload, rec.Record.Payload)
-	}
-}
-
-func TestNextRoundtripPutOperation(t *testing.T) {
-	payload := []byte("key=value")
-	encoded := encodeRecord(record.RecordTypePutOperation, payload)
-
-	reader := record.NewFrameReader(bytes.NewReader(encoded))
-	rec, err := reader.Next()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rec.Record.Type != record.RecordTypePutOperation {
-		t.Errorf("expected type %v, got %v", record.RecordTypePutOperation, rec.Record.Type)
-	}
-	if !bytes.Equal(rec.Record.Payload, payload) {
-		t.Errorf("expected payload %v, got %v", payload, rec.Record.Payload)
-	}
-}
-
-func TestNextRoundtripDeleteOperation(t *testing.T) {
-	payload := []byte("key-to-delete")
-	encoded := encodeRecord(record.RecordTypeDeleteOperation, payload)
-
-	reader := record.NewFrameReader(bytes.NewReader(encoded))
-	rec, err := reader.Next()
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rec.Record.Type != record.RecordTypeDeleteOperation {
-		t.Errorf("expected type %v, got %v", record.RecordTypeDeleteOperation, rec.Record.Type)
-	}
-	if !bytes.Equal(rec.Record.Payload, payload) {
-		t.Errorf("expected payload %v, got %v", payload, rec.Record.Payload)
-	}
-}
-
-func TestNextTruncatedTailDetection(t *testing.T) {
-	payload := []byte("some-data")
-	encoded := encodeRecord(record.RecordTypePutOperation, payload)
-
-	// When we truncate the record, the CRC bytes get corrupted/incomplete
-	// This results in a checksum mismatch rather than a read error
-	limitedReader := io.LimitedReader{
-		R: bytes.NewReader(encoded),
-		N: int64(len(encoded) - 2),
+func TestNextErrorDetection_TableDriven(t *testing.T) {
+	testCases := []struct {
+		name         string
+		prepare      func() io.Reader
+		expectedKind record.ParseErrorKind
+	}{
+		{"truncated_tail", func() io.Reader {
+			payload := []byte("some-data")
+			encoded := encodeRecord(record.RecordTypePutOperation, payload)
+			return &io.LimitedReader{
+				R: bytes.NewReader(encoded),
+				N: int64(len(encoded) - 2),
+			}
+		}, record.KindTruncated},
+		{"truncated_length", func() io.Reader {
+			return bytes.NewReader([]byte{0x05, 0x00})
+		}, record.KindTruncated},
+		{"checksum_mismatch", func() io.Reader {
+			payload := []byte("test-data")
+			encoded := encodeRecord(record.RecordTypePutOperation, payload)
+			corrupted := make([]byte, len(encoded))
+			copy(corrupted, encoded)
+			corrupted[len(corrupted)-1] ^= 0xFF
+			return bytes.NewReader(corrupted)
+		}, record.KindChecksumMismatch},
+		{"invalid_length", func() io.Reader {
+			buf := new(bytes.Buffer)
+			_ = binary.Write(buf, binary.LittleEndian, uint32(0))
+			return buf
+		}, record.KindInvalidLength},
+		{"too_large_length", func() io.Reader {
+			buf := new(bytes.Buffer)
+			_ = binary.Write(buf, binary.LittleEndian, uint32(record.MaxRecordSize+1))
+			return buf
+		}, record.KindTooLarge},
+		{"invalid_type", func() io.Reader {
+			payload := []byte("test")
+			return bytes.NewReader(encodeRecord(record.RecordTypeUnknown, payload))
+		}, record.KindInvalidType},
+		{"partial_header_1byte", func() io.Reader {
+			return bytes.NewReader([]byte{0x05})
+		}, record.KindTruncated},
+		{"partial_header_3bytes", func() io.Reader {
+			return bytes.NewReader([]byte{0x05, 0x00, 0x00})
+		}, record.KindTruncated},
 	}
 
-	reader := record.NewFrameReader(&limitedReader)
-	_, err := reader.Next()
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			reader := record.NewFrameReader(tc.prepare())
+			_, err := reader.Next()
 
-	if err == nil {
-		t.Fatal("expected error for truncated record")
-	}
+			if err == nil {
+				t.Errorf("expected error, got none")
+			}
 
-	parseErr, ok := err.(*record.ParseError)
-	if !ok {
-		t.Errorf("expected ParseError, got %T", err)
-	}
-	// When the tail is truncated during ReadFull, we get a truncation error
-	if parseErr.Kind != record.KindTruncated {
-		t.Errorf("expected KindTruncated for truncated tail, got %v", parseErr.Kind)
-	}
-	if *parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
-	}
-	if parseErr.SafeTruncateOffset != 0 {
-		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
-	}
-	if parseErr.Want == 0 || parseErr.Have == 0 {
-		t.Errorf("expected non-zero Want/Have for truncation, got Want=%d Have=%d", parseErr.Want, parseErr.Have)
-	}
-}
-
-func TestNextTruncatedLengthDetection(t *testing.T) {
-	// Create a buffer with only 2 bytes (incomplete length header)
-	buf := bytes.NewReader([]byte{0x05, 0x00})
-
-	reader := record.NewFrameReader(buf)
-	_, err := reader.Next()
-
-	if err == nil {
-		t.Fatal("expected error for truncated length header")
-	}
-
-	parseErr, ok := err.(*record.ParseError)
-	if !ok {
-		t.Errorf("expected ParseError, got %T", err)
-	}
-	if parseErr.Kind != record.KindTruncated {
-		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
-	}
-	if *parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
-	}
-	if parseErr.SafeTruncateOffset != 0 {
-		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
-	}
-	if parseErr.Want == 0 || parseErr.Have == 0 {
-		t.Errorf("expected non-zero Want/Have for truncation, got Want=%d Have=%d", parseErr.Want, parseErr.Have)
-	}
-}
-
-func TestNextChecksumMismatchDetection(t *testing.T) {
-	payload := []byte("test-data")
-	encoded := encodeRecord(record.RecordTypePutOperation, payload)
-
-	// Corrupt the checksum (last 4 bytes)
-	corrupted := make([]byte, len(encoded))
-	copy(corrupted, encoded)
-	corrupted[len(corrupted)-1] ^= 0xFF // Flip bits in last byte of checksum
-
-	reader := record.NewFrameReader(bytes.NewReader(corrupted))
-	_, err := reader.Next()
-
-	if err == nil {
-		t.Fatal("expected error for checksum mismatch")
-	}
-
-	parseErr, ok := err.(*record.ParseError)
-	if !ok {
-		t.Errorf("expected ParseError, got %T", err)
-	}
-	if parseErr.Kind != record.KindChecksumMismatch {
-		t.Errorf("expected KindChecksumMismatch, got %v", parseErr.Kind)
-	}
-	if *parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
-	}
-	if parseErr.SafeTruncateOffset != 0 {
-		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
-	}
-	if parseErr.DeclaredLen == 0 {
-		t.Errorf("expected non-zero DeclaredLen for checksum error, got %d", parseErr.DeclaredLen)
-	}
-}
-
-func TestNextInvalidLengthDetection(t *testing.T) {
-	buf := new(bytes.Buffer)
-	// Write length of 0 (invalid)
-	_ = binary.Write(buf, binary.LittleEndian, uint32(0))
-
-	reader := record.NewFrameReader(buf)
-	_, err := reader.Next()
-
-	if err == nil {
-		t.Fatal("expected error for invalid (zero) length")
-	}
-
-	parseErr, ok := err.(*record.ParseError)
-	if !ok {
-		t.Errorf("expected ParseError, got %T", err)
-	}
-	if parseErr.Kind != record.KindInvalidLength {
-		t.Errorf("expected KindInvalidLength, got %v", parseErr.Kind)
-	}
-	if *parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
-	}
-	if parseErr.SafeTruncateOffset != 0 {
-		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
-	}
-	if parseErr.DeclaredLen != 0 {
-		t.Errorf("expected DeclaredLen 0 for invalid length error, got %d", parseErr.DeclaredLen)
-	}
-}
-
-func TestNextTooLargeLengthDetection(t *testing.T) {
-	buf := new(bytes.Buffer)
-	// Write length larger than MaxRecordSize
-	_ = binary.Write(buf, binary.LittleEndian, uint32(record.MaxRecordSize+1))
-
-	reader := record.NewFrameReader(buf)
-	_, err := reader.Next()
-
-	if err == nil {
-		t.Fatal("expected error for too large length")
-	}
-
-	parseErr, ok := err.(*record.ParseError)
-	if !ok {
-		t.Errorf("expected ParseError, got %T", err)
-	}
-	if parseErr.Kind != record.KindTooLarge {
-		t.Errorf("expected KindTooLarge, got %v", parseErr.Kind)
-	}
-	if *parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
-	}
-	if parseErr.SafeTruncateOffset != 0 {
-		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
-	}
-	if parseErr.DeclaredLen == 0 {
-		t.Errorf("expected non-zero DeclaredLen for too large error, got %d", parseErr.DeclaredLen)
-	}
-}
-
-func TestNextInvalidTypeDetection(t *testing.T) {
-	// Use RecordTypeUnknown which is invalid
-	payload := []byte("test")
-	encoded := encodeRecord(record.RecordTypeUnknown, payload)
-
-	reader := record.NewFrameReader(bytes.NewReader(encoded))
-	_, err := reader.Next()
-
-	if err == nil {
-		t.Fatal("expected error for invalid record type")
-	}
-
-	parseErr, ok := err.(*record.ParseError)
-	if !ok {
-		t.Errorf("expected ParseError, got %T", err)
-	}
-	if parseErr.Kind != record.KindInvalidType {
-		t.Errorf("expected KindInvalidType, got %v", parseErr.Kind)
-	}
-	if *parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
-	}
-	if parseErr.SafeTruncateOffset != 0 {
-		t.Errorf("expected SafeTruncateOffset 0, got %d", parseErr.SafeTruncateOffset)
-	}
-	if parseErr.DeclaredLen == 0 {
-		t.Errorf("expected non-zero DeclaredLen for invalid type error, got %d", parseErr.DeclaredLen)
+			parseErr, ok := err.(*record.ParseError)
+			if !ok {
+				t.Errorf("expected ParseError, got %T", err)
+			} else if parseErr.Kind != tc.expectedKind {
+				t.Errorf("expected Kind=%v, got %v", tc.expectedKind, parseErr.Kind)
+			}
+		})
 	}
 }
 
@@ -329,62 +165,6 @@ func TestNextEOF(t *testing.T) {
 
 	if err != io.EOF {
 		t.Fatalf("expected io.EOF for empty stream, got %v", err)
-	}
-}
-
-func TestNextPartialHeaderOneByte(t *testing.T) {
-	// Test reading 1 byte then EOF - should be truncated
-	buf := bytes.NewReader([]byte{0x05})
-	reader := record.NewFrameReader(buf)
-	_, err := reader.Next()
-
-	if err == nil {
-		t.Fatal("expected error for 1-byte truncated header")
-	}
-
-	parseErr, ok := err.(*record.ParseError)
-	if !ok {
-		t.Errorf("expected ParseError, got %T", err)
-	}
-	if parseErr.Kind != record.KindTruncated {
-		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
-	}
-	if *parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
-	}
-	if parseErr.Want != 4 {
-		t.Errorf("expected Want=4, got %d", parseErr.Want)
-	}
-	if parseErr.Have != 1 {
-		t.Errorf("expected Have=1, got %d", parseErr.Have)
-	}
-}
-
-func TestNextPartialHeaderThreeBytes(t *testing.T) {
-	// Test reading 3 bytes then EOF - should be truncated
-	buf := bytes.NewReader([]byte{0x05, 0x00, 0x00})
-	reader := record.NewFrameReader(buf)
-	_, err := reader.Next()
-
-	if err == nil {
-		t.Fatal("expected error for 3-byte truncated header")
-	}
-
-	parseErr, ok := err.(*record.ParseError)
-	if !ok {
-		t.Errorf("expected ParseError, got %T", err)
-	}
-	if parseErr.Kind != record.KindTruncated {
-		t.Errorf("expected KindTruncated, got %v", parseErr.Kind)
-	}
-	if *parseErr.Offset != 0 {
-		t.Errorf("expected Offset 0, got %d", *parseErr.Offset)
-	}
-	if parseErr.Want != 4 {
-		t.Errorf("expected Want=4, got %d", parseErr.Want)
-	}
-	if parseErr.Have != 3 {
-		t.Errorf("expected Have=3, got %d", parseErr.Have)
 	}
 }
 

@@ -23,7 +23,49 @@ func TestNew(t *testing.T) {
 	}
 }
 
-// TestPut stores and retrieves a key-value pair
+// TestPutOperations tests Put with various scenarios
+func TestPutOperations(t *testing.T) {
+	tests := []struct {
+		name       string
+		key        []byte
+		value      []byte
+		shouldFail bool
+	}{
+		{"put_valid", []byte("mykey"), []byte("myvalue"), false},
+		{"put_nil_key", nil, []byte("value"), true},
+		{"put_empty_key", []byte{}, []byte("value"), false},
+		{"put_empty_value", []byte("key"), []byte{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tbl := memtable.New()
+			err := tbl.Put(tt.key, tt.value)
+
+			if tt.shouldFail {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if err != memtable.ErrNilKey {
+					t.Errorf("expected ErrNilKey, got %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				retrieved, ok := tbl.Get(tt.key)
+				if !ok {
+					t.Fatal("expected key to be found")
+				}
+				if !bytes.Equal(retrieved, tt.value) {
+					t.Errorf("expected value %v, got %v", tt.value, retrieved)
+				}
+			}
+		})
+	}
+}
+
+// TestPut stores and retrieves a key-value pair (deprecated: use TestPutOperations)
 func TestPut(t *testing.T) {
 	tbl := memtable.New()
 	key := []byte("mykey")
@@ -40,58 +82,6 @@ func TestPut(t *testing.T) {
 	}
 	if !bytes.Equal(retrieved, value) {
 		t.Errorf("expected value %v, got %v", value, retrieved)
-	}
-}
-
-// TestPutNilKey tests Put with nil key
-func TestPutNilKey(t *testing.T) {
-	tbl := memtable.New()
-	err := tbl.Put(nil, []byte("value"))
-	if err == nil {
-		t.Fatal("expected error for nil key")
-	}
-	if err != memtable.ErrNilKey {
-		t.Errorf("expected ErrNilKey, got %v", err)
-	}
-}
-
-// TestPutEmptyKey stores a key-value pair with empty key
-func TestPutEmptyKey(t *testing.T) {
-	tbl := memtable.New()
-	key := []byte{}
-	value := []byte("value")
-
-	err := tbl.Put(key, value)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	retrieved, ok := tbl.Get(key)
-	if !ok {
-		t.Fatal("expected key to be found")
-	}
-	if !bytes.Equal(retrieved, value) {
-		t.Errorf("expected value %v, got %v", value, retrieved)
-	}
-}
-
-// TestPutEmptyValue stores a key with empty value
-func TestPutEmptyValue(t *testing.T) {
-	tbl := memtable.New()
-	key := []byte("key")
-	value := []byte{}
-
-	err := tbl.Put(key, value)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	retrieved, ok := tbl.Get(key)
-	if !ok {
-		t.Fatal("expected key to be found")
-	}
-	if len(retrieved) != 0 {
-		t.Errorf("expected empty value, got %v", retrieved)
 	}
 }
 
@@ -119,7 +109,45 @@ func TestPutOverwrite(t *testing.T) {
 	}
 }
 
-// TestGetNilKey tests Get with nil key
+// TestGetOperations tests Get with various scenarios
+func TestGetOperations(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFn     func(*testing.T, *memtable.Table) []byte
+		should_find bool
+	}{
+		{"get_nil_key", func(t *testing.T, tbl *memtable.Table) []byte { return nil }, false},
+		{"get_missing_key", func(t *testing.T, tbl *memtable.Table) []byte {
+			if err := tbl.Put([]byte("key1"), []byte("value1")); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			return []byte("key2")
+		}, false},
+		{"get_deleted_key", func(t *testing.T, tbl *memtable.Table) []byte {
+			key := []byte("key")
+			if err := tbl.Put(key, []byte("value")); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if err := tbl.Delete(key); err != nil {
+				t.Fatalf("unexpected error deleting: %v", err)
+			}
+			return key
+		}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tbl := memtable.New()
+			key := tt.setupFn(t, tbl)
+			_, ok := tbl.Get(key)
+			if ok != tt.should_find {
+				t.Errorf("expected find=%v, got %v", tt.should_find, ok)
+			}
+		})
+	}
+}
+
+// TestGetNilKey tests Get with nil key (deprecated: use TestGetOperations)
 func TestGetNilKey(t *testing.T) {
 	tbl := memtable.New()
 	_, ok := tbl.Get(nil)
@@ -128,7 +156,7 @@ func TestGetNilKey(t *testing.T) {
 	}
 }
 
-// TestGetMissing tests Get for non-existent key
+// TestGetMissing tests Get for non-existent key (deprecated: use TestGetOperations)
 func TestGetMissing(t *testing.T) {
 	tbl := memtable.New()
 	if err := tbl.Put([]byte("key1"), []byte("value1")); err != nil {
@@ -141,7 +169,7 @@ func TestGetMissing(t *testing.T) {
 	}
 }
 
-// TestGetDeleted tests that Get returns false for deleted key
+// TestGetDeleted tests that Get returns false for deleted key (deprecated: use TestGetOperations)
 func TestGetDeleted(t *testing.T) {
 	tbl := memtable.New()
 	key := []byte("key")
@@ -160,7 +188,43 @@ func TestGetDeleted(t *testing.T) {
 	}
 }
 
-// TestDeleteNilKey tests Delete with nil key
+// TestDeleteOperations tests Delete with various scenarios
+func TestDeleteOperations(t *testing.T) {
+	tests := []struct {
+		name       string
+		key        []byte
+		setupFn    func(*memtable.Table) error
+		shouldFail bool
+	}{
+		{"delete_nil_key", nil, func(m *memtable.Table) error { return nil }, true},
+		{"delete_nonexistent", []byte("nonexistent"), func(m *memtable.Table) error { return nil }, false},
+		{"delete_existing", []byte("key"), func(m *memtable.Table) error {
+			return m.Put([]byte("key"), []byte("value"))
+		}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tbl := memtable.New()
+			if err := tt.setupFn(tbl); err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+
+			err := tbl.Delete(tt.key)
+			if tt.shouldFail {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestDeleteNilKey tests Delete with nil key (deprecated: use TestDeleteOperations)
 func TestDeleteNilKey(t *testing.T) {
 	tbl := memtable.New()
 	err := tbl.Delete(nil)
@@ -172,7 +236,7 @@ func TestDeleteNilKey(t *testing.T) {
 	}
 }
 
-// TestDeleteNonExistent deletes a non-existent key (should be no-op)
+// TestDeleteNonExistent deletes a non-existent key (should be no-op) (deprecated: use TestDeleteOperations)
 func TestDeleteNonExistent(t *testing.T) {
 	tbl := memtable.New()
 	err := tbl.Delete([]byte("nonexistent"))
@@ -280,84 +344,144 @@ func TestSnapshotValueCopy(t *testing.T) {
 	}
 }
 
-// TestApplyPut applies a put operation
-func TestApplyPut(t *testing.T) {
-	tbl := memtable.New()
-	ops := []kv.Op{
-		{Kind: kv.OpPut, Key: []byte("key1"), Value: []byte("value1")},
-		{Kind: kv.OpPut, Key: []byte("key2"), Value: []byte("value2")},
+// TestApplyOperations tests Apply with various operation types
+func TestApplyOperations(t *testing.T) {
+	tests := []struct {
+		name    string
+		setupFn func(*memtable.Table) error
+		ops     []kv.Op
+		verify  func(*testing.T, *memtable.Table)
+	}{
+		{"apply_put", func(m *memtable.Table) error { return nil },
+			[]kv.Op{
+				{Kind: kv.OpPut, Key: []byte("key1"), Value: []byte("value1")},
+				{Kind: kv.OpPut, Key: []byte("key2"), Value: []byte("value2")},
+			},
+			func(t *testing.T, tbl *memtable.Table) {
+				if val, ok := tbl.Get([]byte("key1")); !ok || !bytes.Equal(val, []byte("value1")) {
+					t.Error("key1 not applied correctly")
+				}
+				if val, ok := tbl.Get([]byte("key2")); !ok || !bytes.Equal(val, []byte("value2")) {
+					t.Error("key2 not applied correctly")
+				}
+			}},
+		{"apply_delete", func(m *memtable.Table) error {
+			return m.Put([]byte("key"), []byte("value"))
+		},
+			[]kv.Op{{Kind: kv.OpDelete, Key: []byte("key")}},
+			func(t *testing.T, tbl *memtable.Table) {
+				_, ok := tbl.Get([]byte("key"))
+				if ok {
+					t.Fatal("expected key to be deleted")
+				}
+			}},
+		{"apply_mixed", func(m *memtable.Table) error {
+			return m.Put([]byte("existing"), []byte("value"))
+		},
+			[]kv.Op{
+				{Kind: kv.OpPut, Key: []byte("new"), Value: []byte("newvalue")},
+				{Kind: kv.OpDelete, Key: []byte("existing")},
+				{Kind: kv.OpPut, Key: []byte("another"), Value: []byte("another")},
+			},
+			func(t *testing.T, tbl *memtable.Table) {
+				if _, ok := tbl.Get([]byte("new")); !ok {
+					t.Error("new key not applied")
+				}
+				if _, ok := tbl.Get([]byte("existing")); ok {
+					t.Error("existing key should be deleted")
+				}
+				if _, ok := tbl.Get([]byte("another")); !ok {
+					t.Error("another key not applied")
+				}
+			}},
+		{"apply_empty", func(m *memtable.Table) error { return nil },
+			[]kv.Op{},
+			func(t *testing.T, tbl *memtable.Table) {}},
+		{"apply_last_write_wins", func(m *memtable.Table) error { return nil },
+			[]kv.Op{
+				{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value1")},
+				{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value2")},
+				{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value3")},
+			},
+			func(t *testing.T, tbl *memtable.Table) {
+				retrieved, ok := tbl.Get([]byte("key"))
+				if !ok || !bytes.Equal(retrieved, []byte("value3")) {
+					t.Errorf("expected value3, got %v", retrieved)
+				}
+			}},
+		{"apply_put_then_delete", func(m *memtable.Table) error { return nil },
+			[]kv.Op{
+				{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value")},
+				{Kind: kv.OpDelete, Key: []byte("key")},
+			},
+			func(t *testing.T, tbl *memtable.Table) {
+				_, ok := tbl.Get([]byte("key"))
+				if ok {
+					t.Fatal("expected key to be deleted")
+				}
+			}},
+		{"apply_delete_then_put", func(m *memtable.Table) error {
+			return m.Put([]byte("key"), []byte("original"))
+		},
+			[]kv.Op{
+				{Kind: kv.OpDelete, Key: []byte("key")},
+				{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("new")},
+			},
+			func(t *testing.T, tbl *memtable.Table) {
+				retrieved, ok := tbl.Get([]byte("key"))
+				if !ok || !bytes.Equal(retrieved, []byte("new")) {
+					t.Errorf("expected new value, got %v", retrieved)
+				}
+			}},
 	}
 
-	err := tbl.Apply(ops)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if val, ok := tbl.Get([]byte("key1")); !ok || !bytes.Equal(val, []byte("value1")) {
-		t.Error("key1 not applied correctly")
-	}
-	if val, ok := tbl.Get([]byte("key2")); !ok || !bytes.Equal(val, []byte("value2")) {
-		t.Error("key2 not applied correctly")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tbl := memtable.New()
+			if err := tt.setupFn(tbl); err != nil {
+				t.Fatalf("setup failed: %v", err)
+			}
+			err := tbl.Apply(tt.ops)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			tt.verify(t, tbl)
+		})
 	}
 }
 
-// TestApplyDelete applies a delete operation
-func TestApplyDelete(t *testing.T) {
-	tbl := memtable.New()
-	if err := tbl.Put([]byte("key"), []byte("value")); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// TestApplyErrors tests Apply error conditions
+func TestApplyErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		ops  []kv.Op
+	}{
+		{"apply_nil_key", []kv.Op{
+			{Kind: kv.OpPut, Key: []byte("key1"), Value: []byte("value1")},
+			{Kind: kv.OpPut, Key: nil, Value: []byte("value2")},
+		}},
+		{"apply_invalid_op_kind", []kv.Op{
+			{Kind: kv.OpKind(99), Key: []byte("key"), Value: []byte("value")},
+		}},
 	}
 
-	ops := []kv.Op{
-		{Kind: kv.OpDelete, Key: []byte("key")},
-	}
-
-	err := tbl.Apply(ops)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	_, ok := tbl.Get([]byte("key"))
-	if ok {
-		t.Fatal("expected key to be deleted")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tbl := memtable.New()
+			err := tbl.Apply(tt.ops)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+		})
 	}
 }
 
-// TestApplyMixed applies mixed put and delete operations
-func TestApplyMixed(t *testing.T) {
-	tbl := memtable.New()
-	if err := tbl.Put([]byte("existing"), []byte("value")); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	ops := []kv.Op{
-		{Kind: kv.OpPut, Key: []byte("new"), Value: []byte("newvalue")},
-		{Kind: kv.OpDelete, Key: []byte("existing")},
-		{Kind: kv.OpPut, Key: []byte("another"), Value: []byte("another")},
-	}
-
-	err := tbl.Apply(ops)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if _, ok := tbl.Get([]byte("new")); !ok {
-		t.Error("new key not applied")
-	}
-	if _, ok := tbl.Get([]byte("existing")); ok {
-		t.Error("existing key should be deleted")
-	}
-	if _, ok := tbl.Get([]byte("another")); !ok {
-		t.Error("another key not applied")
-	}
-}
-
-// TestApplyNilKey tests Apply with nil key in batch
+// TestApplyNilKey tests Apply with nil key in batch (deprecated: use TestApplyErrors)
 func TestApplyNilKey(t *testing.T) {
 	tbl := memtable.New()
 	ops := []kv.Op{
 		{Kind: kv.OpPut, Key: []byte("key1"), Value: []byte("value1")},
-		{Kind: kv.OpPut, Key: nil, Value: []byte("value2")}, // nil key
+		{Kind: kv.OpPut, Key: nil, Value: []byte("value2")},
 	}
 
 	err := tbl.Apply(ops)
@@ -367,95 +491,8 @@ func TestApplyNilKey(t *testing.T) {
 	if err != memtable.ErrNilKey {
 		t.Errorf("expected ErrNilKey, got %v", err)
 	}
-
-	// Note: Apply is not atomic - operations before the error are still applied
-	// So key1 should be present even though the batch failed
 	if _, ok := tbl.Get([]byte("key1")); !ok {
 		t.Error("key1 should have been applied before the error")
-	}
-}
-
-// TestApplyInvalidOpKind tests Apply with invalid operation kind
-func TestApplyInvalidOpKind(t *testing.T) {
-	tbl := memtable.New()
-	ops := []kv.Op{
-		{Kind: kv.OpKind(99), Key: []byte("key"), Value: []byte("value")}, // invalid kind
-	}
-
-	err := tbl.Apply(ops)
-	if err == nil {
-		t.Fatal("expected error for invalid op kind")
-	}
-}
-
-// TestApplyEmpty applies empty operation list
-func TestApplyEmpty(t *testing.T) {
-	tbl := memtable.New()
-	err := tbl.Apply([]kv.Op{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-// TestApplyLastWriteWins applies multiple writes to same key
-func TestApplyLastWriteWins(t *testing.T) {
-	tbl := memtable.New()
-	ops := []kv.Op{
-		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value1")},
-		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value2")},
-		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value3")},
-	}
-
-	err := tbl.Apply(ops)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	retrieved, ok := tbl.Get([]byte("key"))
-	if !ok || !bytes.Equal(retrieved, []byte("value3")) {
-		t.Errorf("expected value3, got %v", retrieved)
-	}
-}
-
-// TestApplyPutThenDelete applies put then delete to same key
-func TestApplyPutThenDelete(t *testing.T) {
-	tbl := memtable.New()
-	ops := []kv.Op{
-		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("value")},
-		{Kind: kv.OpDelete, Key: []byte("key")},
-	}
-
-	err := tbl.Apply(ops)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	_, ok := tbl.Get([]byte("key"))
-	if ok {
-		t.Fatal("expected key to be deleted")
-	}
-}
-
-// TestApplyDeleteThenPut applies delete then put to same key
-func TestApplyDeleteThenPut(t *testing.T) {
-	tbl := memtable.New()
-	if err := tbl.Put([]byte("key"), []byte("original")); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	ops := []kv.Op{
-		{Kind: kv.OpDelete, Key: []byte("key")},
-		{Kind: kv.OpPut, Key: []byte("key"), Value: []byte("new")},
-	}
-
-	err := tbl.Apply(ops)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	retrieved, ok := tbl.Get([]byte("key"))
-	if !ok || !bytes.Equal(retrieved, []byte("new")) {
-		t.Errorf("expected new value, got %v", retrieved)
 	}
 }
 
@@ -630,7 +667,33 @@ func TestManyKeys(t *testing.T) {
 	}
 }
 
-// TestBinaryData tests with binary (non-UTF8) data
+// TestDataTypes tests with various data types
+func TestDataTypes(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   []byte
+		value []byte
+	}{
+		{"binary_data", []byte{0x00, 0x01, 0x02, 0xFF}, []byte{0xAA, 0xBB, 0xCC, 0xDD}},
+		{"unicode_data", []byte("🔑"), []byte("🔒")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tbl := memtable.New()
+			err := tbl.Put(tt.key, tt.value)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			retrieved, ok := tbl.Get(tt.key)
+			if !ok || !bytes.Equal(retrieved, tt.value) {
+				t.Errorf("%s not stored correctly", tt.name)
+			}
+		})
+	}
+}
+
+// TestBinaryData tests with binary (non-UTF8) data (deprecated: use TestDataTypes)
 func TestBinaryData(t *testing.T) {
 	tbl := memtable.New()
 	key := []byte{0x00, 0x01, 0x02, 0xFF}
@@ -647,7 +710,7 @@ func TestBinaryData(t *testing.T) {
 	}
 }
 
-// TestUnicodeData tests with unicode data
+// TestUnicodeData tests with unicode data (deprecated: use TestDataTypes)
 func TestUnicodeData(t *testing.T) {
 	tbl := memtable.New()
 	key := []byte("🔑")

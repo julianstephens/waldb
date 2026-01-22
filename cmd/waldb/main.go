@@ -2,20 +2,17 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/alecthomas/kong"
 
-	"github.com/julianstephens/go-utils/cliutil"
 	"github.com/julianstephens/waldb/internal/cli"
 	"github.com/julianstephens/waldb/internal/logger"
+	"github.com/julianstephens/waldb/internal/waldb"
 )
 
 var (
-	version = "dev"
-	commit  = "abb3796"
-	date    = "2026-01-18T19:39"
+	version = "waldb v0.1.0"
 )
 
 type LogOpts struct {
@@ -24,7 +21,6 @@ type LogOpts struct {
 	Stream bool   `help:"Log to stdout/stderr in addition to file"                envvar:"WALDB_LOG_STREAM"`
 }
 
-// CLI defines the command-line interface structure.
 type CLI struct {
 	Init     cli.InitCmd     `cmd:"" help:"Initialize a new WAL database"`
 	Get      cli.GetCmd      `cmd:"" help:"Get a value by key"`
@@ -36,19 +32,19 @@ type CLI struct {
 	Doctor   cli.DoctorCmd   `cmd:"" help:"Check database health and integrity"`
 	Repair   cli.RepairCmd   `cmd:"" help:"Repair a corrupted database"`
 
-	Logger  logger.Logger `kong:"-"` // Internal logger, not exposed as CLI flag
-	LogOpts LogOpts       `         embed:"" prefix:"log-" help:"Logging options"`
-	Version VersionFlag   `                                help:"Show version information" name:"version" short:"v"`
+	Logger  logger.Logger    `kong:"-"` // Internal logger, not exposed as CLI flag
+	LogOpts LogOpts          `         embed:"" prefix:"log-" help:"Logging options"`
+	Version kong.VersionFlag `                                help:"Show version information" short:"V"`
 }
 
-// VersionFlag is a custom flag for displaying version information.
-type VersionFlag bool
+// // VersionFlag is a custom flag for displaying version information.
+// type VersionFlag bool
 
-func (v VersionFlag) BeforeApply(ctx *kong.Context) error {
-	cliutil.PrintInfo(fmt.Sprintf("waldb %s (commit: %s, built: %s)\n", version, commit, date))
-	ctx.Exit(0)
-	return nil
-}
+// func (v VersionFlag) BeforeApply(ctx *kong.Context) error {
+// 	cliutil.PrintInfo(fmt.Sprintf("waldb %s (commit: %s, built: %s)\n", version, commit, date))
+// 	ctx.Exit(0)
+// 	return nil
+// }
 
 func createLogger(opts LogOpts) (logger.Logger, error) {
 	var level string
@@ -65,9 +61,12 @@ func createLogger(opts LogOpts) (logger.Logger, error) {
 	}
 
 	// FIXME: should use manifest values
-	logDir := "logs"
-	logFileName := "waldb.log"
-	fileLogger, err := logger.NewFileLogger(logDir, logFileName, 10, 5)
+	fileLogger, err := logger.NewFileLogger(
+		waldb.DefaultLogDir,
+		waldb.DefaultLogFileName,
+		waldb.DefaultLogMaxSize,
+		waldb.DefaultLogMaxBackups,
+	)
 	if err != nil {
 		return nil, err
 	}
