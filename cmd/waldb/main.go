@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"os"
+	"path"
 
 	"github.com/alecthomas/kong"
 
@@ -37,15 +38,6 @@ type CLI struct {
 	Version kong.VersionFlag `                                help:"Show version information" short:"V"`
 }
 
-// // VersionFlag is a custom flag for displaying version information.
-// type VersionFlag bool
-
-// func (v VersionFlag) BeforeApply(ctx *kong.Context) error {
-// 	cliutil.PrintInfo(fmt.Sprintf("waldb %s (commit: %s, built: %s)\n", version, commit, date))
-// 	ctx.Exit(0)
-// 	return nil
-// }
-
 func createLogger(opts LogOpts) (logger.Logger, error) {
 	var level string
 	if opts.Debug {
@@ -61,8 +53,13 @@ func createLogger(opts LogOpts) (logger.Logger, error) {
 	}
 
 	// FIXME: should use manifest values
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	logDir := path.Join(homeDir, waldb.DefaultAppDir, waldb.DefaultLogDir)
 	fileLogger, err := logger.NewFileLogger(
-		waldb.DefaultLogDir,
+		logDir,
 		waldb.DefaultLogFileName,
 		waldb.DefaultLogMaxSize,
 		waldb.DefaultLogMaxBackups,
