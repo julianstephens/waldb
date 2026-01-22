@@ -2,7 +2,8 @@ package cli
 
 import (
 	"errors"
-	"fmt"
+
+	"github.com/julianstephens/go-utils/cliutil"
 )
 
 // ErrNotImplemented is returned when a command is not yet implemented.
@@ -14,7 +15,7 @@ type InitCmd struct {
 }
 
 func (c *InitCmd) Run() error {
-	fmt.Println("Command 'init' is not yet implemented")
+	cliutil.PrintError("Command 'init' is not yet implemented")
 	return ErrNotImplemented
 }
 
@@ -24,7 +25,7 @@ type GetCmd struct {
 }
 
 func (c *GetCmd) Run() error {
-	fmt.Println("Command 'get' is not yet implemented")
+	cliutil.PrintError("Command 'get' is not yet implemented")
 	return ErrNotImplemented
 }
 
@@ -35,7 +36,7 @@ type PutCmd struct {
 }
 
 func (c *PutCmd) Run() error {
-	fmt.Println("Command 'put' is not yet implemented")
+	cliutil.PrintError("Command 'put' is not yet implemented")
 	return ErrNotImplemented
 }
 
@@ -45,7 +46,7 @@ type DelCmd struct {
 }
 
 func (c *DelCmd) Run() error {
-	fmt.Println("Command 'del' is not yet implemented")
+	cliutil.PrintError("Command 'del' is not yet implemented")
 	return ErrNotImplemented
 }
 
@@ -55,7 +56,7 @@ type BatchCmd struct {
 }
 
 func (c *BatchCmd) Run() error {
-	fmt.Println("Command 'batch' is not yet implemented")
+	cliutil.PrintError("Command 'batch' is not yet implemented")
 	return ErrNotImplemented
 }
 
@@ -65,7 +66,7 @@ type SnapshotCmd struct {
 }
 
 func (c *SnapshotCmd) Run() error {
-	fmt.Println("Command 'snapshot' is not yet implemented")
+	cliutil.PrintError("Command 'snapshot' is not yet implemented")
 	return ErrNotImplemented
 }
 
@@ -73,7 +74,7 @@ func (c *SnapshotCmd) Run() error {
 type StatsCmd struct{}
 
 func (c *StatsCmd) Run() error {
-	fmt.Println("Command 'stats' is not yet implemented")
+	cliutil.PrintError("Command 'stats' is not yet implemented")
 	return ErrNotImplemented
 }
 
@@ -81,7 +82,7 @@ func (c *StatsCmd) Run() error {
 type DoctorCmd struct{}
 
 func (c *DoctorCmd) Run() error {
-	fmt.Println("Command 'doctor' is not yet implemented")
+	cliutil.PrintError("Command 'doctor' is not yet implemented")
 	return ErrNotImplemented
 }
 
@@ -91,6 +92,6 @@ type RepairCmd struct {
 }
 
 func (c *RepairCmd) Run() error {
-	fmt.Println("Command 'repair' is not yet implemented")
+	cliutil.PrintError("Command 'repair' is not yet implemented")
 	return ErrNotImplemented
 }

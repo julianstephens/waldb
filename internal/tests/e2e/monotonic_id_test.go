@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/julianstephens/waldb/internal/logger"
+
 	tst "github.com/julianstephens/go-utils/tests"
 	waldbcore "github.com/julianstephens/waldb/internal/waldb"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
@@ -16,7 +18,7 @@ func TestIdStartsAtOne(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
 	// Open a brand-new DB (no segments)
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -39,7 +41,7 @@ func TestIdSeededFromRecovery(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
 	// Phase 1: Create a DB and commit multiple batches
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	var txnIds []uint64
@@ -63,7 +65,7 @@ func TestIdSeededFromRecovery(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Phase 2: Reopen the DB and verify allocator is seeded from recovery
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -84,7 +86,7 @@ func TestIdAcrossRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
 	// 1. Open(path) - fresh DB
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// 2. Commit batch A
@@ -99,7 +101,7 @@ func TestIdAcrossRestart(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// 4. Open(path) again
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true})
+	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()

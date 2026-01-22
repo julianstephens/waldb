@@ -4,18 +4,22 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 
 	"github.com/alecthomas/kong"
+
+	"github.com/julianstephens/go-utils/cliutil"
 	"github.com/julianstephens/waldb/internal/cli"
+	"github.com/julianstephens/waldb/internal/logger"
+	"github.com/julianstephens/waldb/internal/waldb"
 )
 
-var (
-	version = "dev"
-	commit  = "unknown"
-	date    = "unknown"
-)
+type LogOpts struct {
+	Level  string `help:"Logging level (debug, info, warn, error)" default:"info" envvar:"WALDB_LOG_LEVEL"`
+	Debug  bool   `help:"Enable debug logging (overrides --level)"                envvar:"WALDB_DEBUG"`
+	Stream bool   `help:"Log to stdout/stderr in addition to file"                envvar:"WALDB_LOG_STREAM"`
+}
 
-// CLI defines the command-line interface structure.
 type CLI struct {
 	Init     cli.InitCmd     `cmd:"" help:"Initialize a new WAL database"`
 	Get      cli.GetCmd      `cmd:"" help:"Get a value by key"`
@@ -27,20 +31,61 @@ type CLI struct {
 	Doctor   cli.DoctorCmd   `cmd:"" help:"Check database health and integrity"`
 	Repair   cli.RepairCmd   `cmd:"" help:"Repair a corrupted database"`
 
-	Version VersionFlag `name:"version" help:"Show version information" short:"v"`
+	// Internal logger, not exposed as CLI flag
+	Logger logger.Logger `kong:"-"`
+	// nolint:golines // keep struct field aligned
+	LogOpts LogOpts     `embed:"" prefix:"log-" help:"Logging options"`
+	Version VersionFlag `help:"Show version information" short:"V"`
 }
 
-// VersionFlag is a custom flag for displaying version information.
-type VersionFlag bool
+type VersionFlag string
 
-func (v VersionFlag) BeforeApply(ctx *kong.Context) error {
-	fmt.Printf("waldb %s (commit: %s, built: %s)\n", version, commit, date)
-	ctx.Exit(0)
+func (v VersionFlag) Decode(ctx *kong.DecodeContext) error { return nil }
+func (v VersionFlag) IsBool() bool                         { return true }
+func (v VersionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
+	cliutil.PrintColored(fmt.Sprintf("waldb v%s", vars["version"]), cliutil.ColorCyan)
+	app.Exit(0)
 	return nil
 }
 
+func createLogger(opts LogOpts) (logger.Logger, error) {
+	var level string
+	if opts.Debug {
+		level = "debug"
+	} else {
+		level = opts.Level
+	}
+
+	consoleLogger := logger.NewConsoleLogger(level)
+
+	if opts.Stream {
+		return consoleLogger, nil
+	}
+
+	// FIXME: should use manifest values
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	logDir := path.Join(homeDir, waldb.DefaultAppDir, waldb.DefaultLogDir)
+	fileLogger, err := logger.NewFileLogger(
+		logDir,
+		waldb.DefaultLogFileName,
+		waldb.DefaultLogMaxSize,
+		waldb.DefaultLogMaxBackups,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	multiLogger := logger.NewMultiLogger(fileLogger, consoleLogger)
+	return multiLogger, nil
+}
+
 func main() {
-	cliApp := &CLI{}
+	cliApp := &CLI{
+		Logger: logger.NoOpLogger{}, // Default to no-op logger
+	}
 	ctx := kong.Parse(cliApp,
 		kong.Name("waldb"),
 		kong.Description("A Write-Ahead Log database"),
@@ -49,11 +94,25 @@ func main() {
 			Compact: true,
 		}),
 		kong.Vars{
-			"version": version,
+			"version": waldb.Version,
 		},
 	)
 
-	err := ctx.Run()
+	// Create logger from CLI options
+	lg, err := createLogger(cliApp.LogOpts)
+	if err != nil {
+		ctx.FatalIfErrorf(err)
+	}
+	cliApp.Logger = lg
+
+	// Ensure logger is properly closed
+	defer func() {
+		if c, ok := lg.(logger.Closeable); ok {
+			_ = c.Close()
+		}
+	}()
+
+	err = ctx.Run()
 	if err != nil {
 		if errors.Is(err, cli.ErrNotImplemented) {
 			os.Exit(2)

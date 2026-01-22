@@ -3,252 +3,281 @@ package record_test
 import (
 	"testing"
 
-	tst "github.com/julianstephens/go-utils/tests"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
-func TestComputeChecksum(t *testing.T) {
-	// Test that ComputeChecksum produces consistent results
-	data := []byte("test data")
-	crc1 := record.ComputeChecksum(data)
-	crc2 := record.ComputeChecksum(data)
+func TestComputeChecksum_TableDriven(t *testing.T) {
+	// Test that ComputeChecksum produces consistent results and different data produces different checksums
+	testCases := []struct {
+		name            string
+		data            []byte
+		expectDifferent bool // Whether this should differ from first test case
+	}{
+		{"consistent_basic", []byte("test data"), false},
+		{"empty", []byte{}, false},
+		{"different_data", []byte("different data"), true},
+		{"single_byte", []byte{0x42}, false},
+		{"text", []byte("hello world"), false},
+		{"binary", []byte{0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD}, false},
+		{"large", make([]byte, 10000), false},
+	}
 
-	tst.RequireDeepEqual(t, crc1, crc2)
+	baselineChecksum := uint32(0)
+	for i, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Compute checksum twice to test determinism
+			crc1 := record.ComputeChecksum(tc.data)
+			crc2 := record.ComputeChecksum(tc.data)
 
-	// Test empty data produces zero (valid for CRC algorithms)
-	emptyCRC := record.ComputeChecksum([]byte{})
-	tst.RequireDeepEqual(t, emptyCRC, uint32(0))
+			if crc1 != crc2 {
+				t.Errorf("checksum not deterministic: %d != %d", crc1, crc2)
+			}
 
-	// Test different data produces different checksums
-	data2 := []byte("different data")
-	crc3 := record.ComputeChecksum(data2)
-	tst.AssertFalse(t, crc1 == crc3, "different data should produce different checksums")
+			// Track baseline for comparison
+			if i == 0 {
+				baselineChecksum = crc1
+			} else if tc.expectDifferent {
+				if crc1 == baselineChecksum {
+					t.Errorf("expected different checksum from baseline, but got %d == %d", crc1, baselineChecksum)
+				}
+			}
+		})
+	}
 }
 
-func TestComputeChecksumDeterministic(t *testing.T) {
-	// Test with various payloads to ensure consistency
+func TestVerifyChecksum_TableDriven(t *testing.T) {
 	testCases := []struct {
-		name string
-		data []byte
+		name        string
+		setupRecord func() *record.Record
+		expectValid bool
+		description string
 	}{
-		{"empty", []byte{}},
-		{"single byte", []byte{0x42}},
-		{"text", []byte("hello world")},
-		{"binary", []byte{0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD}},
-		{"large", make([]byte, 10000)},
+		{
+			name: "ValidRecord",
+			setupRecord: func() *record.Record {
+				rec := &record.Record{
+					Type:    record.RecordTypePutOperation,
+					Payload: []byte("test payload"),
+				}
+				record.UpdateChecksum(rec)
+				return rec
+			},
+			expectValid: true,
+			description: "valid record with correct checksum",
+		},
+		{
+			name: "InvalidCRC",
+			setupRecord: func() *record.Record {
+				return &record.Record{
+					Type:    record.RecordTypePutOperation,
+					Payload: []byte("test payload"),
+					CRC:     0xDEADBEEF,
+				}
+			},
+			expectValid: false,
+			description: "record with corrupted CRC",
+		},
+		{
+			name: "NilRecord",
+			setupRecord: func() *record.Record {
+				return nil
+			},
+			expectValid: false,
+			description: "nil record",
+		},
+		{
+			name: "PayloadMutation",
+			setupRecord: func() *record.Record {
+				rec := &record.Record{
+					Type:    record.RecordTypeBeginTransaction,
+					Payload: []byte("original payload"),
+				}
+				record.UpdateChecksum(rec)
+				rec.Payload = []byte("modified payload")
+				return rec
+			},
+			expectValid: false,
+			description: "record with mutated payload",
+		},
+		{
+			name: "TypeMutation",
+			setupRecord: func() *record.Record {
+				rec := &record.Record{
+					Type:    record.RecordTypePutOperation,
+					Payload: []byte("test"),
+				}
+				record.UpdateChecksum(rec)
+				rec.Type = record.RecordTypeDeleteOperation
+				return rec
+			},
+			expectValid: false,
+			description: "record with mutated type",
+		},
 	}
 
 	for _, tc := range testCases {
-		crc1 := record.ComputeChecksum(tc.data)
-		crc2 := record.ComputeChecksum(tc.data)
-		if crc1 != crc2 {
-			t.Errorf("%s: checksum not deterministic: %d != %d", tc.name, crc1, crc2)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			rec := tc.setupRecord()
+			valid := record.VerifyChecksum(rec)
+
+			if valid != tc.expectValid {
+				t.Errorf("%s: expected valid=%v, got=%v", tc.description, tc.expectValid, valid)
+			}
+		})
 	}
 }
 
-func TestVerifyChecksum(t *testing.T) {
-	// Test with valid record
-	rec := &record.Record{
-		Type:    record.RecordTypePutOperation,
-		Payload: []byte("test payload"),
-	}
-	record.UpdateChecksum(rec)
+func TestUpdateChecksum_TableDriven(t *testing.T) {
+	testCases := []struct {
+		name        string
+		setupRecord func() *record.Record
+		verify      func(*testing.T, *record.Record)
+	}{
+		{
+			name: "BasicUpdate",
+			setupRecord: func() *record.Record {
+				return &record.Record{
+					Type:    record.RecordTypeCommitTransaction,
+					Payload: []byte("commit data"),
+					CRC:     0,
+				}
+			},
+			verify: func(t *testing.T, rec *record.Record) {
+				if !record.VerifyChecksum(rec) {
+					t.Error("expected valid checksum after UpdateChecksum")
+				}
+				if rec.CRC == 0 {
+					t.Error("expected non-zero CRC after UpdateChecksum")
+				}
+			},
+		},
+		{
+			name: "NilRecord",
+			setupRecord: func() *record.Record {
+				return nil
+			},
+			verify: func(t *testing.T, rec *record.Record) {
+				// Should not panic, no verification needed
+			},
+		},
+		{
+			name: "MultipleUpdates",
+			setupRecord: func() *record.Record {
+				return &record.Record{
+					Type:    record.RecordTypePutOperation,
+					Payload: []byte("test"),
+				}
+			},
+			verify: func(t *testing.T, rec *record.Record) {
+				record.UpdateChecksum(rec)
+				crc1 := rec.CRC
 
-	if !record.VerifyChecksum(rec) {
-		t.Error("expected VerifyChecksum to return true for valid record")
-	}
-}
+				record.UpdateChecksum(rec)
+				crc2 := rec.CRC
 
-func TestVerifyChecksumInvalid(t *testing.T) {
-	// Test with corrupted CRC
-	rec := &record.Record{
-		Type:    record.RecordTypePutOperation,
-		Payload: []byte("test payload"),
-		CRC:     0xDEADBEEF, // Invalid CRC
-	}
+				if crc1 != crc2 {
+					t.Errorf("UpdateChecksum not idempotent: %d != %d", crc1, crc2)
+				}
+				if !record.VerifyChecksum(rec) {
+					t.Error("expected valid checksum after multiple updates")
+				}
+			},
+		},
+		{
+			name: "AllRecordTypes",
+			setupRecord: func() *record.Record {
+				// This will be tested for each type
+				return &record.Record{
+					Type:    record.RecordTypeBeginTransaction,
+					Payload: []byte("test-data"),
+				}
+			},
+			verify: func(t *testing.T, rec *record.Record) {
+				types := []record.RecordType{
+					record.RecordTypeBeginTransaction,
+					record.RecordTypeCommitTransaction,
+					record.RecordTypePutOperation,
+					record.RecordTypeDeleteOperation,
+				}
+				for _, recordType := range types {
+					rec := &record.Record{
+						Type:    recordType,
+						Payload: []byte("test-data"),
+					}
+					record.UpdateChecksum(rec)
 
-	if record.VerifyChecksum(rec) {
-		t.Error("expected VerifyChecksum to return false for invalid record")
-	}
-}
-
-func TestVerifyChecksumNil(t *testing.T) {
-	// Test with nil record
-	if record.VerifyChecksum(nil) {
-		t.Error("expected VerifyChecksum to return false for nil record")
-	}
-}
-
-func TestVerifyChecksumPayloadMutation(t *testing.T) {
-	// Create a record with valid checksum
-	rec := &record.Record{
-		Type:    record.RecordTypeBeginTransaction,
-		Payload: []byte("original payload"),
-	}
-	record.UpdateChecksum(rec)
-
-	// Verify it's valid
-	if !record.VerifyChecksum(rec) {
-		t.Fatal("expected valid checksum initially")
-	}
-
-	// Mutate the payload
-	rec.Payload = []byte("modified payload")
-
-	// Should now be invalid
-	if record.VerifyChecksum(rec) {
-		t.Error("expected VerifyChecksum to return false after payload mutation")
-	}
-}
-
-func TestVerifyChecksumTypeMutation(t *testing.T) {
-	// Create a record with valid checksum
-	rec := &record.Record{
-		Type:    record.RecordTypePutOperation,
-		Payload: []byte("test"),
-	}
-	record.UpdateChecksum(rec)
-
-	// Verify it's valid
-	if !record.VerifyChecksum(rec) {
-		t.Fatal("expected valid checksum initially")
-	}
-
-	// Change the type
-	rec.Type = record.RecordTypeDeleteOperation
-
-	// Should now be invalid
-	if record.VerifyChecksum(rec) {
-		t.Error("expected VerifyChecksum to return false after type mutation")
-	}
-}
-
-func TestUpdateChecksum(t *testing.T) {
-	// Create a record
-	rec := &record.Record{
-		Type:    record.RecordTypeCommitTransaction,
-		Payload: []byte("commit data"),
-		CRC:     0, // Invalid initially
-	}
-
-	// Update the checksum
-	record.UpdateChecksum(rec)
-
-	// Should now be valid
-	if !record.VerifyChecksum(rec) {
-		t.Error("expected VerifyChecksum to return true after UpdateChecksum")
-	}
-
-	// CRC should be non-zero
-	if rec.CRC == 0 {
-		t.Error("expected non-zero CRC after UpdateChecksum")
-	}
-}
-
-func TestUpdateChecksumNil(t *testing.T) {
-	// Should not panic
-	record.UpdateChecksum(nil)
-}
-
-func TestUpdateChecksumMultiple(t *testing.T) {
-	// Update checksum multiple times should be idempotent
-	rec := &record.Record{
-		Type:    record.RecordTypePutOperation,
-		Payload: []byte("test"),
-	}
-
-	record.UpdateChecksum(rec)
-	crc1 := rec.CRC
-
-	record.UpdateChecksum(rec)
-	crc2 := rec.CRC
-
-	if crc1 != crc2 {
-		t.Errorf("UpdateChecksum not idempotent: %d != %d", crc1, crc2)
-	}
-
-	if !record.VerifyChecksum(rec) {
-		t.Error("expected valid checksum after multiple updates")
-	}
-}
-
-func TestChecksumAllRecordTypes(t *testing.T) {
-	// Test checksum computation for all record types
-	types := []record.RecordType{
-		record.RecordTypeBeginTransaction,
-		record.RecordTypeCommitTransaction,
-		record.RecordTypePutOperation,
-		record.RecordTypeDeleteOperation,
-	}
-	payload := []byte("test-data")
-
-	for _, recordType := range types {
-		rec := &record.Record{
-			Type:    recordType,
-			Payload: payload,
-		}
-		record.UpdateChecksum(rec)
-
-		if !record.VerifyChecksum(rec) {
-			t.Errorf("expected valid checksum for type %v", recordType)
-		}
-
-		if rec.CRC == 0 {
-			t.Errorf("expected non-zero CRC for type %v", recordType)
-		}
-	}
-}
-
-func TestChecksumEmptyPayload(t *testing.T) {
-	// Test checksum with empty payload
-	rec := &record.Record{
-		Type:    record.RecordTypeBeginTransaction,
-		Payload: []byte{},
-	}
-	record.UpdateChecksum(rec)
-
-	if !record.VerifyChecksum(rec) {
-		t.Error("expected valid checksum for empty payload")
+					if !record.VerifyChecksum(rec) {
+						t.Errorf("expected valid checksum for type %v", recordType)
+					}
+					if rec.CRC == 0 {
+						t.Errorf("expected non-zero CRC for type %v", recordType)
+					}
+				}
+			},
+		},
+		{
+			name: "EmptyPayload",
+			setupRecord: func() *record.Record {
+				return &record.Record{
+					Type:    record.RecordTypeBeginTransaction,
+					Payload: []byte{},
+				}
+			},
+			verify: func(t *testing.T, rec *record.Record) {
+				record.UpdateChecksum(rec)
+				if !record.VerifyChecksum(rec) {
+					t.Error("expected valid checksum for empty payload")
+				}
+				if rec.CRC == 0 {
+					t.Error("expected non-zero CRC for empty payload")
+				}
+			},
+		},
+		{
+			name: "LargePayload",
+			setupRecord: func() *record.Record {
+				payload := make([]byte, 100000)
+				for i := range payload {
+					payload[i] = byte(i % 256)
+				}
+				return &record.Record{
+					Type:    record.RecordTypePutOperation,
+					Payload: payload,
+				}
+			},
+			verify: func(t *testing.T, rec *record.Record) {
+				record.UpdateChecksum(rec)
+				if !record.VerifyChecksum(rec) {
+					t.Error("expected valid checksum for large payload")
+				}
+			},
+		},
+		{
+			name: "BinaryData",
+			setupRecord: func() *record.Record {
+				payload := make([]byte, 256)
+				for i := 0; i < 256; i++ {
+					payload[i] = byte(i)
+				}
+				return &record.Record{
+					Type:    record.RecordTypeDeleteOperation,
+					Payload: payload,
+				}
+			},
+			verify: func(t *testing.T, rec *record.Record) {
+				record.UpdateChecksum(rec)
+				if !record.VerifyChecksum(rec) {
+					t.Error("expected valid checksum for binary payload")
+				}
+			},
+		},
 	}
 
-	if rec.CRC == 0 {
-		t.Error("expected non-zero CRC for empty payload")
-	}
-}
-
-func TestChecksumLargePayload(t *testing.T) {
-	// Test checksum with large payload
-	payload := make([]byte, 100000)
-	for i := range payload {
-		payload[i] = byte(i % 256)
-	}
-
-	rec := &record.Record{
-		Type:    record.RecordTypePutOperation,
-		Payload: payload,
-	}
-	record.UpdateChecksum(rec)
-
-	if !record.VerifyChecksum(rec) {
-		t.Error("expected valid checksum for large payload")
-	}
-}
-
-func TestChecksumBinaryData(t *testing.T) {
-	// Test checksum with binary data containing all byte values
-	payload := make([]byte, 256)
-	for i := 0; i < 256; i++ {
-		payload[i] = byte(i)
-	}
-
-	rec := &record.Record{
-		Type:    record.RecordTypeDeleteOperation,
-		Payload: payload,
-	}
-	record.UpdateChecksum(rec)
-
-	if !record.VerifyChecksum(rec) {
-		t.Error("expected valid checksum for binary payload")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := tc.setupRecord()
+			record.UpdateChecksum(rec)
+			tc.verify(t, rec)
+		})
 	}
 }

@@ -49,7 +49,61 @@ func TestSegmentReaderSegID(t *testing.T) {
 	tst.RequireDeepEqual(t, reader.SegID(), segId)
 }
 
-// TestFileSegmentReaderSeekTo tests seeking to an offset
+// TestFileSegmentReaderSeekOperations tests seeking to various offsets
+func TestFileSegmentReaderSeekOperations(t *testing.T) {
+	testCases := []struct {
+		name     string
+		content  []byte
+		offset   int64
+		shouldOk bool
+	}{
+		{
+			name:     "seek_within_file",
+			content:  []byte("0123456789ABCDEF"),
+			offset:   5,
+			shouldOk: true,
+		},
+		{
+			name:     "seek_to_beyond_eof",
+			content:  []byte("small"),
+			offset:   1000,
+			shouldOk: true,
+		},
+		{
+			name:     "seek_to_zero",
+			content:  []byte("0123456789"),
+			offset:   0,
+			shouldOk: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			testFile := filepath.Join(tempDir, "test.wal")
+
+			err := os.WriteFile(testFile, tc.content, 0o600) //nolint:gosec
+			tst.RequireNoError(t, err)
+
+			file, err := os.Open(testFile) //nolint:gosec
+			tst.RequireNoError(t, err)
+			defer file.Close() //nolint:errcheck
+
+			reader := wal.NewFileSegmentReader(1, file)
+			err = reader.SeekTo(tc.offset)
+
+			if tc.shouldOk {
+				tst.RequireNoError(t, err)
+			} else {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+			}
+		})
+	}
+}
+
+// TestFileSegmentReaderSeekTo tests seeking to an offset (deprecated - use TestFileSegmentReaderSeekOperations)
 func TestFileSegmentReaderSeekTo(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.wal")
@@ -70,7 +124,7 @@ func TestFileSegmentReaderSeekTo(t *testing.T) {
 	tst.RequireNoError(t, err)
 }
 
-// TestFileSegmentReaderSeekToInvalid tests seeking to invalid offset
+// TestFileSegmentReaderSeekToInvalid tests seeking to invalid offset (deprecated - use TestFileSegmentReaderSeekOperations)
 func TestFileSegmentReaderSeekToInvalid(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.wal")
@@ -90,7 +144,98 @@ func TestFileSegmentReaderSeekToInvalid(t *testing.T) {
 	tst.RequireNoError(t, err)
 }
 
-// TestFileSegmentReaderGetReader tests getting the io.Reader
+// TestFileSegmentReaderReadOperations tests various read scenarios
+func TestFileSegmentReaderReadOperations(t *testing.T) {
+	testCases := []struct {
+		name         string
+		content      []byte
+		seekOffset   int64
+		expectedRead []byte
+		readSize     int
+		expectError  error
+	}{
+		{
+			name:         "read_from_start",
+			content:      []byte("test content"),
+			seekOffset:   -1, // no seek
+			expectedRead: []byte("test content"),
+			readSize:     12,
+			expectError:  nil,
+		},
+		{
+			name:         "read_after_seek",
+			content:      []byte("0123456789"),
+			seekOffset:   5,
+			expectedRead: []byte("56789"),
+			readSize:     5,
+			expectError:  nil,
+		},
+		{
+			name:         "read_all_then_eof",
+			content:      []byte("short"),
+			seekOffset:   -1,
+			expectedRead: []byte("short"),
+			readSize:     5,
+			expectError:  nil,
+		},
+		{
+			name:         "read_from_empty_file",
+			content:      []byte{},
+			seekOffset:   -1,
+			expectedRead: nil,
+			readSize:     10,
+			expectError:  io.EOF,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			testFile := filepath.Join(tempDir, "test.wal")
+
+			err := os.WriteFile(testFile, tc.content, 0o600) //nolint:gosec
+			tst.RequireNoError(t, err)
+
+			file, err := os.Open(testFile) //nolint:gosec
+			tst.RequireNoError(t, err)
+			defer file.Close() //nolint:errcheck
+
+			reader := wal.NewFileSegmentReader(1, file)
+			r := reader.Reader()
+
+			// Seek if specified
+			if tc.seekOffset >= 0 {
+				err = reader.SeekTo(tc.seekOffset)
+				tst.RequireNoError(t, err)
+				r = reader.Reader() // Get updated reader after seek
+			}
+
+			// Read
+			buf := make([]byte, tc.readSize)
+			n, err := r.Read(buf)
+
+			// Check results
+			if tc.expectError != nil {
+				tst.RequireDeepEqual(t, err, tc.expectError)
+				tst.RequireDeepEqual(t, n, 0)
+			} else {
+				tst.RequireNoError(t, err)
+				if tc.expectedRead != nil {
+					tst.RequireDeepEqual(t, buf[:n], tc.expectedRead)
+				}
+				// For the "read_all_then_eof" case, verify EOF on next read
+				if tc.name == "read_all_then_eof" {
+					buf2 := make([]byte, 10)
+					n2, err2 := r.Read(buf2)
+					tst.RequireDeepEqual(t, n2, 0)
+					tst.RequireDeepEqual(t, err2, io.EOF)
+				}
+			}
+		})
+	}
+}
+
+// TestFileSegmentReaderGetReader tests getting the io.Reader (deprecated - use TestFileSegmentReaderReadOperations)
 func TestFileSegmentReaderGetReader(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.wal")
@@ -118,7 +263,7 @@ func TestFileSegmentReaderGetReader(t *testing.T) {
 	tst.RequireDeepEqual(t, buf, content)
 }
 
-// TestFileSegmentReaderReaderAfterSeek tests reading after seeking
+// TestFileSegmentReaderReaderAfterSeek tests reading after seeking (deprecated - use TestFileSegmentReaderReadOperations)
 func TestFileSegmentReaderReaderAfterSeek(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.wal")
@@ -166,7 +311,7 @@ func TestFileSegmentReaderClose(t *testing.T) {
 	tst.RequireNoError(t, err)
 }
 
-// TestFileSegmentReaderMultipleReads tests reading in chunks
+// TestFileSegmentReaderMultipleReads tests reading in chunks (deprecated - use TestFileSegmentReaderReadOperations)
 func TestFileSegmentReaderMultipleReads(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.wal")
@@ -203,7 +348,7 @@ func TestFileSegmentReaderMultipleReads(t *testing.T) {
 	tst.RequireDeepEqual(t, chunk3[:n], []byte("klmnop"))
 }
 
-// TestFileSegmentReaderReadEOF tests EOF after reading all content
+// TestFileSegmentReaderReadEOF tests EOF after reading all content (deprecated - use TestFileSegmentReaderReadOperations)
 func TestFileSegmentReaderReadEOF(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.wal")
@@ -233,7 +378,7 @@ func TestFileSegmentReaderReadEOF(t *testing.T) {
 	tst.RequireDeepEqual(t, err, io.EOF)
 }
 
-// TestFileSegmentReaderSeekToBeginning tests seeking back to beginning
+// TestFileSegmentReaderSeekToBeginning tests seeking back to beginning (deprecated - use TestFileSegmentReaderSeekOperations)
 func TestFileSegmentReaderSeekToBeginning(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.wal")
@@ -269,7 +414,60 @@ func TestFileSegmentReaderSeekToBeginning(t *testing.T) {
 	tst.RequireDeepEqual(t, buf2, []byte("test"))
 }
 
-// TestFileSegmentReaderBinaryData tests reading binary data
+// TestFileSegmentReaderDataTypes tests different data types (binary, text, special cases)
+func TestFileSegmentReaderDataTypes(t *testing.T) {
+	testCases := []struct {
+		name    string
+		content []byte
+	}{
+		{
+			name:    "binary_data",
+			content: []byte{0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD},
+		},
+		{
+			name:    "text_data",
+			content: []byte("test content"),
+		},
+		{
+			name:    "empty_file",
+			content: []byte{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			testFile := filepath.Join(tempDir, "test.wal")
+
+			err := os.WriteFile(testFile, tc.content, 0o600) //nolint:gosec
+			tst.RequireNoError(t, err)
+
+			file, err := os.Open(testFile) //nolint:gosec
+			tst.RequireNoError(t, err)
+			defer file.Close() //nolint:errcheck
+
+			reader := wal.NewFileSegmentReader(1, file)
+			r := reader.Reader()
+
+			if len(tc.content) == 0 {
+				// Empty file should return EOF
+				buf := make([]byte, 10)
+				n, err := r.Read(buf)
+				tst.RequireDeepEqual(t, n, 0)
+				tst.RequireDeepEqual(t, err, io.EOF)
+			} else {
+				// Read the content
+				buf := make([]byte, len(tc.content))
+				n, err := r.Read(buf)
+				tst.RequireNoError(t, err)
+				tst.RequireDeepEqual(t, n, len(tc.content))
+				tst.RequireDeepEqual(t, buf, tc.content)
+			}
+		})
+	}
+}
+
+// TestFileSegmentReaderBinaryData tests reading binary data (deprecated - use TestFileSegmentReaderDataTypes)
 func TestFileSegmentReaderBinaryData(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "test.wal")
@@ -294,7 +492,7 @@ func TestFileSegmentReaderBinaryData(t *testing.T) {
 	tst.RequireDeepEqual(t, buf, content)
 }
 
-// TestFileSegmentReaderEmptyFile tests reading from empty file
+// TestFileSegmentReaderEmptyFile tests reading from empty file (deprecated - use TestFileSegmentReaderDataTypes)
 func TestFileSegmentReaderEmptyFile(t *testing.T) {
 	tempDir := t.TempDir()
 	testFile := filepath.Join(tempDir, "empty.wal")
