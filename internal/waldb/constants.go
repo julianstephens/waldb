@@ -13,3 +13,7 @@ const (
 	DefaultLogMaxBackups = 3
 	DefaultLogLevel      = "info"
 )
+
+const (
+	Version = "0.1.0"
+)

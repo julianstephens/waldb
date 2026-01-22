@@ -4,10 +4,8 @@
 BINARY_NAME=waldb
 BUILD_DIR=bin
 CMD_DIR=./cmd/waldb
-VERSION?=dev
-COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-DATE?=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
-LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
+VERSION?=0.1.0
+LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 
 # Default target
 all: check
@@ -17,6 +15,7 @@ build:
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
+	@chmod +x $(BUILD_DIR)/$(BINARY_NAME)
 	@echo "Built $(BUILD_DIR)/$(BINARY_NAME)"
 
 ## install: Install the binary to $GOPATH/bin

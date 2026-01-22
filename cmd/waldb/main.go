@@ -2,18 +2,16 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path"
 
 	"github.com/alecthomas/kong"
 
+	"github.com/julianstephens/go-utils/cliutil"
 	"github.com/julianstephens/waldb/internal/cli"
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb"
-)
-
-var (
-	version = "waldb v0.1.0"
 )
 
 type LogOpts struct {
@@ -33,9 +31,19 @@ type CLI struct {
 	Doctor   cli.DoctorCmd   `cmd:"" help:"Check database health and integrity"`
 	Repair   cli.RepairCmd   `cmd:"" help:"Repair a corrupted database"`
 
-	Logger  logger.Logger    `kong:"-"` // Internal logger, not exposed as CLI flag
-	LogOpts LogOpts          `         embed:"" prefix:"log-" help:"Logging options"`
-	Version kong.VersionFlag `                                help:"Show version information" short:"V"`
+	Logger  logger.Logger `kong:"-"` // Internal logger, not exposed as CLI flag
+	LogOpts LogOpts       `embed:"" prefix:"log-" help:"Logging options"`
+	Version VersionFlag   `help:"Show version information" short:"V"`
+}
+
+type VersionFlag string
+
+func (v VersionFlag) Decode(ctx *kong.DecodeContext) error { return nil }
+func (v VersionFlag) IsBool() bool                         { return true }
+func (v VersionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
+	cliutil.PrintColored(fmt.Sprintf("waldb v%s", vars["version"]), cliutil.ColorCyan)
+	app.Exit(0)
+	return nil
 }
 
 func createLogger(opts LogOpts) (logger.Logger, error) {
@@ -84,7 +92,7 @@ func main() {
 			Compact: true,
 		}),
 		kong.Vars{
-			"version": version,
+			"version": waldb.Version,
 		},
 	)
 

@@ -29,14 +29,10 @@ jobs:
         id: version
         run: |
           echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          echo "COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
       - name: Build binaries
         env:
           TAG: ${{ steps.version.outputs.TAG }}
-          COMMIT: ${{ steps.version.outputs.COMMIT }}
-          DATE: ${{ steps.version.outputs.DATE }}
         run: |
           mkdir -p dist
 
@@ -60,7 +56,7 @@ jobs:
             
             echo "Building for $GOOS/$GOARCH..."
             GOOS=$GOOS GOARCH=$GOARCH go build \
-              -ldflags "-X main.version=${TAG} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+              -ldflags "-X main.version=${TAG}" \
               -o "dist/${output_name}" \
               ./cmd/waldb
             
