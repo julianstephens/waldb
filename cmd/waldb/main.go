@@ -31,9 +31,11 @@ type CLI struct {
 	Doctor   cli.DoctorCmd   `cmd:"" help:"Check database health and integrity"`
 	Repair   cli.RepairCmd   `cmd:"" help:"Repair a corrupted database"`
 
-	Logger  logger.Logger `kong:"-"` // Internal logger, not exposed as CLI flag
-	LogOpts LogOpts       `embed:"" prefix:"log-" help:"Logging options"`
-	Version VersionFlag   `help:"Show version information" short:"V"`
+	// Internal logger, not exposed as CLI flag
+	Logger logger.Logger `kong:"-"`
+	// nolint:golines // keep struct field aligned
+	LogOpts LogOpts     `embed:"" prefix:"log-" help:"Logging options"`
+	Version VersionFlag `help:"Show version information" short:"V"`
 }
 
 type VersionFlag string
