@@ -3,6 +3,7 @@ package testutil
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
@@ -221,8 +222,17 @@ func (h *RecoveryHarness) Replay(start wal.Boundary) error {
 	}
 
 	provider := NewSegmentProvider()
-	for segID, data := range h.segments {
-		provider.AddSegment(segID, data)
+
+	// Collect and sort segment IDs to ensure deterministic order
+	// (map iteration in Go is randomized, but production behavior requires ordered segments)
+	segmentIDs := make([]uint64, 0, len(h.segments))
+	for segID := range h.segments {
+		segmentIDs = append(segmentIDs, segID)
+	}
+	sort.Slice(segmentIDs, func(i, j int) bool { return segmentIDs[i] < segmentIDs[j] })
+
+	for _, segID := range segmentIDs {
+		provider.AddSegment(segID, h.segments[segID])
 	}
 
 	h.result, h.err = recovery.Replay(provider, start, h.mem, h.lg)

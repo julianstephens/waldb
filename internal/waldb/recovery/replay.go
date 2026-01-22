@@ -113,19 +113,17 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 		segId := ids[i]
 		lg.Debug("processing segment", "seg", segId, "index", i-startIdx, "total", len(ids)-startIdx)
 		sr, err := p.OpenSegment(segId)
-		defer func() {
-			if sr != nil {
-				if err := sr.Close(); err != nil {
-					lg.Error("failed to close segment", err, "seg", segId)
-				}
-			}
-		}()
 		if err != nil {
 			lg.Warn("failed to open segment", "seg", segId, "reason", "open_error")
 			result.NextTxnId = state.maxCommitted + 1
 			result.LastCommittedTxnId = state.maxCommitted
 			result.LastValid = lastValidBoundary
 			result.TailStatus = TailStatusCorrupt
+			if sr != nil {
+				if closeErr := sr.Close(); closeErr != nil {
+					lg.Error("failed to close segment", closeErr, "seg", segId)
+				}
+			}
 			return result, &ReplaySourceError{
 				Kind: ReplaySourceSegmentOpen,
 				Coordinates: &errorutil.Coordinates{
@@ -143,6 +141,9 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 				result.LastCommittedTxnId = state.maxCommitted
 				result.LastValid = lastValidBoundary
 				result.TailStatus = TailStatusCorrupt
+				if closeErr := sr.Close(); closeErr != nil {
+					lg.Error("failed to close segment", closeErr, "seg", segId)
+				}
 				return result, &ReplaySourceError{
 					Kind: ReplaySourceSegmentOpen,
 					Coordinates: &errorutil.Coordinates{
@@ -159,6 +160,9 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 				result.LastCommittedTxnId = state.maxCommitted
 				result.LastValid = lastValidBoundary
 				result.TailStatus = TailStatusCorrupt
+				if closeErr := sr.Close(); closeErr != nil {
+					lg.Error("failed to close segment", closeErr, "seg", segId)
+				}
 				return result, &ReplaySourceError{
 					Kind: ReplaySourceSegmentOpen,
 					Coordinates: &errorutil.Coordinates{
@@ -212,6 +216,9 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 							lastValidBoundary.Offset,
 						)
 						sawRecoverableTruncation = true
+						if closeErr := sr.Close(); closeErr != nil {
+							lg.Error("failed to close segment", closeErr, "seg", segId)
+						}
 						break
 					}
 				}
@@ -219,6 +226,9 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 				result.LastCommittedTxnId = state.maxCommitted
 				result.LastValid = lastValidBoundary
 				result.TailStatus = TailStatusCorrupt
+				if closeErr := sr.Close(); closeErr != nil {
+					lg.Error("failed to close segment", closeErr, "seg", segId)
+				}
 				return result, &ReplayDecodeError{
 					Coordinates: &errorutil.Coordinates{
 						SegId:  &segId,
@@ -236,6 +246,9 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 				result.LastValid = lastValidBoundary
 				result.LastCommittedTxnId = state.maxCommitted
 				result.TailStatus = TailStatusCorrupt
+				if closeErr := sr.Close(); closeErr != nil {
+					lg.Error("failed to close segment", closeErr, "seg", segId)
+				}
 				de, ok := err.(*ReplayDecodeError)
 				if ok {
 					de.SafeOffset = lastValidBoundary.Offset
@@ -250,6 +263,12 @@ func Replay(p wal.SegmentProvider, start wal.Boundary, mem *memtable.Table, lg l
 				Offset: rec.Offset + rec.Size,
 			}
 
+		}
+
+		if sr != nil {
+			if closeErr := sr.Close(); closeErr != nil {
+				lg.Error("failed to close segment", closeErr, "seg", segId)
+			}
 		}
 
 	}
