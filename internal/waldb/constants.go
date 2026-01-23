@@ -6,7 +6,6 @@ const (
 
 // Log file defaults
 const (
-	DefaultAppDir        = ".waldb"
 	DefaultLogDir        = "logs"
 	DefaultLogFileName   = "waldb.log"
 	DefaultLogMaxSize    = 100
@@ -15,5 +14,6 @@ const (
 )
 
 const (
-	Version = "0.1.0"
+	Version         = "0.1.0"
+	ManifestVersion = 1
 )

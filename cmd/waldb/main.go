@@ -34,8 +34,8 @@ type CLI struct {
 	// Internal logger, not exposed as CLI flag
 	Logger logger.Logger `kong:"-"`
 	// nolint:golines // keep struct field aligned
-	LogOpts LogOpts     `embed:"" prefix:"log-" help:"Logging options"`
-	Version VersionFlag `help:"Show version information" short:"V"`
+	LogOpts LogOpts     `         embed:"" prefix:"log-" help:"Logging options"`
+	Version VersionFlag `                                help:"Show version information" short:"V"`
 }
 
 type VersionFlag string
@@ -63,13 +63,12 @@ func createLogger(opts LogOpts) (logger.Logger, error) {
 	}
 
 	// FIXME: should use manifest values
-	homeDir, err := os.UserHomeDir()
+	wd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
-	logDir := path.Join(homeDir, waldb.DefaultAppDir, waldb.DefaultLogDir)
 	fileLogger, err := logger.NewFileLogger(
-		logDir,
+		path.Join(wd, waldb.DefaultLogDir),
 		waldb.DefaultLogFileName,
 		waldb.DefaultLogMaxSize,
 		waldb.DefaultLogMaxBackups,
