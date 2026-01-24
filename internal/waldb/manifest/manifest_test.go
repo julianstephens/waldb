@@ -225,3 +225,204 @@ func TestOpen_UnsupportedVersion(t *testing.T) {
 		t.Errorf("expected Kind=UnsupportedVersion, got %v", manifestErr.Kind)
 	}
 }
+
+// TestValidate_Valid tests that a valid manifest passes validation
+func TestValidate_Valid(t *testing.T) {
+	m := defaultManifest()
+	if err := m.Validate(); err != nil {
+		t.Errorf("expected valid manifest to pass validation, got error: %v", err)
+	}
+}
+
+// TestValidate_InvalidFormatVersion tests that non-positive format version is rejected
+func TestValidate_InvalidFormatVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		version int
+	}{
+		{"ZeroVersion", 0},
+		{"NegativeVersion", -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := defaultManifest()
+			m.FormatVersion = tt.version
+
+			err := m.Validate()
+			if err == nil {
+				t.Fatalf("expected error for version %d, got nil", tt.version)
+			}
+
+			manifestErr, ok := err.(*ManifestError)
+			if !ok {
+				t.Fatalf("expected ManifestError, got %T", err)
+			}
+			if manifestErr.Kind != ManifestErrorKindCorrupted {
+				t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
+			}
+		})
+	}
+}
+
+// TestValidate_InvalidMaxKeyBytes tests max key bytes validation
+func TestValidate_InvalidMaxKeyBytes(t *testing.T) {
+	tests := []struct {
+		name        string
+		maxKeyBytes int
+		expectErr   bool
+	}{
+		{"ZeroMaxKeyBytes", 0, true},
+		{"NegativeMaxKeyBytes", -1, true},
+		{"MaxKeySizeBoundary", 4096, false},
+		{"ExceedsMaxKeySize", 4097, true},
+		{"LargeExceedance", 10000, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := defaultManifest()
+			m.MaxKeyBytes = tt.maxKeyBytes
+
+			err := m.Validate()
+			if tt.expectErr && err == nil {
+				t.Fatalf("expected error for MaxKeyBytes=%d, got nil", tt.maxKeyBytes)
+			}
+			if !tt.expectErr && err != nil {
+				t.Fatalf("expected no error for MaxKeyBytes=%d, got: %v", tt.maxKeyBytes, err)
+			}
+
+			if err != nil {
+				manifestErr, ok := err.(*ManifestError)
+				if !ok {
+					t.Fatalf("expected ManifestError, got %T", err)
+				}
+				if manifestErr.Kind != ManifestErrorKindCorrupted {
+					t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
+				}
+			}
+		})
+	}
+}
+
+// TestValidate_InvalidMaxValueBytes tests max value bytes validation
+func TestValidate_InvalidMaxValueBytes(t *testing.T) {
+	tests := []struct {
+		name          string
+		maxValueBytes int
+		expectErr     bool
+	}{
+		{"ZeroMaxValueBytes", 0, true},
+		{"NegativeMaxValueBytes", -1, true},
+		{"MaxValueSizeBoundary", 4194304, false},
+		{"ExceedsMaxValueSize", 4194305, true},
+		{"LargeExceedance", 5000000, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := defaultManifest()
+			m.MaxValueBytes = tt.maxValueBytes
+
+			err := m.Validate()
+			if tt.expectErr && err == nil {
+				t.Fatalf("expected error for MaxValueBytes=%d, got nil", tt.maxValueBytes)
+			}
+			if !tt.expectErr && err != nil {
+				t.Fatalf("expected no error for MaxValueBytes=%d, got: %v", tt.maxValueBytes, err)
+			}
+
+			if err != nil {
+				manifestErr, ok := err.(*ManifestError)
+				if !ok {
+					t.Fatalf("expected ManifestError, got %T", err)
+				}
+				if manifestErr.Kind != ManifestErrorKindCorrupted {
+					t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
+				}
+			}
+		})
+	}
+}
+
+// TestValidate_InvalidWalSegmentMaxBytes tests WAL segment max bytes validation
+func TestValidate_InvalidWalSegmentMaxBytes(t *testing.T) {
+	tests := []struct {
+		name               string
+		walSegmentMaxBytes int
+		expectErr          bool
+	}{
+		{"ZeroWalSegmentMaxBytes", 0, true},
+		{"NegativeWalSegmentMaxBytes", -1, true},
+		{"TooSmall_BelowMinRecordFrameSize", 8, true}, // MinRecordFrameSize = 9
+		{"MinRecordFrameSizeBoundary", 9, false},      // MinRecordFrameSize = 9, this is exactly at boundary
+		{"ValidLargeValue", 268435456, false},         // 256 MB default
+		{"SmallValidValue", 1024, false},              // Well above MinRecordFrameSize
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := defaultManifest()
+			m.WalSegmentMaxBytes = tt.walSegmentMaxBytes
+
+			err := m.Validate()
+			if tt.expectErr && err == nil {
+				t.Fatalf("expected error for WalSegmentMaxBytes=%d, got nil", tt.walSegmentMaxBytes)
+			}
+			if !tt.expectErr && err != nil {
+				t.Fatalf("expected no error for WalSegmentMaxBytes=%d, got: %v", tt.walSegmentMaxBytes, err)
+			}
+
+			if err != nil {
+				manifestErr, ok := err.(*ManifestError)
+				if !ok {
+					t.Fatalf("expected ManifestError, got %T", err)
+				}
+				if manifestErr.Kind != ManifestErrorKindCorrupted {
+					t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
+				}
+			}
+		})
+	}
+}
+
+// TestValidate_MultipleInvalidFields tests validation with multiple invalid fields
+func TestValidate_MultipleInvalidFields(t *testing.T) {
+	m := &Manifest{
+		FormatVersion:      0, // Invalid
+		FsyncOnCommit:      true,
+		MaxKeyBytes:        -1, // Invalid
+		MaxValueBytes:      4194304,
+		WalSegmentMaxBytes: 268435456,
+	}
+
+	err := m.Validate()
+	if err == nil {
+		t.Fatalf("expected error for invalid manifest with multiple fields, got nil")
+	}
+
+	// Validate should catch at least the first invalid field
+	manifestErr, ok := err.(*ManifestError)
+	if !ok {
+		t.Fatalf("expected ManifestError, got %T", err)
+	}
+	if manifestErr.Kind != ManifestErrorKindCorrupted {
+		t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
+	}
+}
+
+// TestValidate_BoundaryValues tests validation at boundaries
+func TestValidate_BoundaryValues(t *testing.T) {
+	m := &Manifest{
+		FormatVersion:      1, // Minimum valid positive value
+		FsyncOnCommit:      true,
+		MaxKeyBytes:        1, // Minimum positive value
+		MaxValueBytes:      1, // Minimum positive value
+		WalSegmentMaxBytes: 268435456,
+	}
+
+	err := m.Validate()
+	if err != nil {
+		t.Errorf("expected valid manifest with minimum positive values, got error: %v", err)
+	}
+}
