@@ -1,10 +1,9 @@
 package manifest
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"path"
 	"path/filepath"
 
 	"github.com/julianstephens/go-utils/helpers"
@@ -17,85 +16,88 @@ const ManifestFileName = "MANIFEST.json"
 
 // Manifest represents the database manifest file structure
 type Manifest struct {
-	Version           int  `json:"version"`
-	FsyncOnCommit     bool `json:"fsync_on_commit"`
-	MaxKeySize        int  `json:"max_key_size"`
-	MaxValueSize      int  `json:"max_value_size"`
-	WalSegmentMaxSize int  `json:"wal_segment_max_size"`
-	WalSegmentNextID  *int `json:"wal_segment_next_id,omitempty"`
-	WalLogMaxSize     *int `json:"wal_log_max_size,omitempty"`
-	WalLogMaxBackups  *int `json:"wal_log_max_backups,omitempty"`
+	FormatVersion      int  `json:"format_version"`
+	FsyncOnCommit      bool `json:"fsync_on_commit"`
+	MaxKeyBytes        int  `json:"max_key_bytes"`
+	MaxValueBytes      int  `json:"max_value_bytes"`
+	WalSegmentMaxBytes int  `json:"wal_segment_max_bytes"`
+	WalSegmentNextID   *int `json:"wal_segment_next_id,omitempty"`
+	WalLogMaxBytes     *int `json:"wal_log_max_bytes,omitempty"`
+	WalLogMaxBackups   *int `json:"wal_log_max_backups,omitempty"`
 }
 
-// DefaultManifest returns a Manifest with default settings
-func DefaultManifest() *Manifest {
+// defaultManifest returns a Manifest with default settings
+func defaultManifest() *Manifest {
 	return &Manifest{
-		Version:           waldb.ManifestVersion,
-		FsyncOnCommit:     true,
-		MaxKeySize:        record.MaxKeySize,
-		MaxValueSize:      record.MaxValueSize,
-		WalSegmentMaxSize: int(waldb.DefaultSegmentMaxBytes),
-		WalSegmentNextID:  nil,
-		WalLogMaxSize:     nil,
-		WalLogMaxBackups:  nil,
+		FormatVersion:      waldb.ManifestVersion,
+		FsyncOnCommit:      true,
+		MaxKeyBytes:        record.MaxKeySize,
+		MaxValueBytes:      record.MaxValueSize,
+		WalSegmentMaxBytes: int(waldb.DefaultSegmentMaxBytes),
+		WalSegmentNextID:   nil,
+		WalLogMaxBytes:     nil,
+		WalLogMaxBackups:   nil,
 	}
 }
 
-// CreateDefaultManifest creates a manifest file with default settings
-func CreateDefaultManifest() error {
-	manifestPath, err := getManifestPath()
-	if err != nil {
-		return err
-	}
+// Init creates a new manifest file with default setting
+func Init(dir string) (m *Manifest, err error) {
+	manifestPath := filepath.Join(dir, ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); exists {
-		return &ManifestError{
+		err = &ManifestError{
 			Kind: ManifestErrorKindAlreadyExists,
 			Err:  fmt.Errorf("manifest already exists at %s", manifestPath),
 		}
+		return
 	}
 
-	m := DefaultManifest()
-	data, err := jsonutil.Marshal(m)
-	if err != nil {
-		return &ManifestError{Kind: ManifestErrorKindEncode, Err: err}
+	m = defaultManifest()
+	data, err2 := jsonutil.Marshal(m)
+	if err2 != nil {
+		err = &ManifestError{Kind: ManifestErrorKindEncode, Err: err2}
+		return
 	}
 
-	return writeFile(manifestPath, data)
+	if err2 := helpers.AtomicFileWrite(manifestPath, data); err2 != nil {
+		err = &ManifestError{Kind: ManifestErrorKindWrite, Err: err2}
+	}
+	return
 }
 
 // Open reads the manifest from disk
-func Open() (*Manifest, error) {
-	manifestPath, err := getManifestPath()
-	if err != nil {
-		return nil, err
-	}
+func Open(dir string) (m *Manifest, err error) {
+	manifestPath := filepath.Join(dir, ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); !exists {
-		return nil, &ManifestError{Kind: ManifestErrorKindNotFound, Err: fs.ErrNotExist}
+		err = &ManifestError{Kind: ManifestErrorKindNotFound, Err: fs.ErrNotExist}
+		return
 	}
 
-	m := &Manifest{}
-	if err := jsonutil.ReadFileStrict(manifestPath, m); err != nil {
-		return nil, &ManifestError{Kind: ManifestErrorKindDecode, Err: err}
+	m = &Manifest{}
+	if err2 := jsonutil.ReadFileStrict(manifestPath, m); err2 != nil {
+		err = &ManifestError{Kind: ManifestErrorKindDecode, Err: err2}
+		return
 	}
 
-	if m.Version > waldb.ManifestVersion {
-		return nil, &ManifestError{
+	if m.FormatVersion > waldb.ManifestVersion {
+		err = &ManifestError{
 			Kind: ManifestErrorKindUnsupportedVersion,
-			Err:  fmt.Errorf("manifest version %d is not supported", m.Version),
+			Err:  fmt.Errorf("manifest version %d is not supported", m.FormatVersion),
 		}
+		return
 	}
 
-	return m, nil
+	if err = m.Validate(); err != nil {
+		return
+	}
+
+	return
 }
 
 // Save writes the manifest to disk
-func (m *Manifest) Save() error {
-	manifestPath, err := getManifestPath()
-	if err != nil {
-		return err
-	}
+func (m *Manifest) Save(dir string) error {
+	manifestPath := filepath.Join(dir, ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); !exists {
 		return &ManifestError{Kind: ManifestErrorKindNotFound, Err: fs.ErrNotExist}
@@ -106,31 +108,51 @@ func (m *Manifest) Save() error {
 		return &ManifestError{Kind: ManifestErrorKindEncode, Err: err}
 	}
 
-	return writeFile(manifestPath, data)
-}
-
-func getManifestPath() (manifestPath string, err error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		err = &ManifestError{Kind: ManifestErrorKindWorkingDirectory, Err: err}
-		return
-	}
-	manifestPath = path.Join(wd, ManifestFileName)
-	return
-}
-
-func writeFile(filePath string, data []byte) error {
-	if err := helpers.AtomicFileWrite(filePath, data); err != nil {
-		return &ManifestError{Kind: ManifestErrorKindWrite, Err: err}
-	}
-	f, err := os.Open(filepath.Dir(filePath)) //nolint:gosec
-	if err != nil {
-		return &ManifestError{Kind: ManifestErrorKindWrite, Err: err}
-	}
-	defer func() { _ = f.Close() }()
-
-	if err := f.Sync(); err != nil {
+	if err := helpers.AtomicFileWrite(manifestPath, data); err != nil {
 		return &ManifestError{Kind: ManifestErrorKindWrite, Err: err}
 	}
 	return nil
+}
+
+// Validate checks the manifest for valid settings
+func (m *Manifest) Validate() error {
+	if m.FormatVersion <= 0 {
+		return mustBePositive("format_version")
+	}
+	if m.MaxKeyBytes <= 0 {
+		return mustBePositive("max_key_bytes")
+	}
+	if m.MaxKeyBytes > record.MaxKeySize {
+		return &ManifestError{
+			Kind: ManifestErrorKindCorrupted,
+			Err:  errors.New("max_key_bytes too large"),
+		}
+	}
+	if m.MaxValueBytes <= 0 {
+		return mustBePositive("max_value_bytes")
+	}
+	if m.MaxValueBytes > record.MaxValueSize {
+		return &ManifestError{
+			Kind: ManifestErrorKindCorrupted,
+			Err:  errors.New("max_value_bytes too large"),
+		}
+
+	}
+	if m.WalSegmentMaxBytes <= 0 {
+		return mustBePositive("wal_segment_max_bytes")
+	}
+	if m.WalSegmentMaxBytes < record.MinRecordFrameSize {
+		return &ManifestError{
+			Kind: ManifestErrorKindCorrupted,
+			Err:  errors.New("wal_segment_max_bytes too small"),
+		}
+	}
+	return nil
+}
+
+func mustBePositive(name string) error {
+	return &ManifestError{
+		Kind: ManifestErrorKindCorrupted,
+		Err:  fmt.Errorf("%s must be positive", name),
+	}
 }

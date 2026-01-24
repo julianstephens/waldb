@@ -8,8 +8,7 @@ import (
 type ManifestErrorKind int
 
 const (
-	ManifestErrorKindOpen ManifestErrorKind = iota + 1
-	ManifestErrorKindNotFound
+	ManifestErrorKindNotFound ManifestErrorKind = iota
 	ManifestErrorKindCorrupted
 	ManifestErrorKindUnsupportedVersion
 	ManifestErrorKindWorkingDirectory
@@ -21,7 +20,6 @@ const (
 )
 
 var (
-	ErrManifestOpen               = errors.New("manifest: unable to open file")
 	ErrManifestNotFound           = errors.New("manifest: file not found")
 	ErrManifestCorrupted          = errors.New("manifest: file corrupted")
 	ErrManifestUnsupportedVersion = errors.New("manifest: unsupported version")
@@ -43,8 +41,6 @@ func (e *ManifestError) Error() string {
 
 func (e *ManifestError) Unwrap() error {
 	switch e.Kind {
-	case ManifestErrorKindOpen:
-		return ErrManifestOpen
 	case ManifestErrorKindNotFound:
 		return ErrManifestNotFound
 	case ManifestErrorKindCorrupted:

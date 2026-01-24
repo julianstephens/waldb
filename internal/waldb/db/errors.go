@@ -6,8 +6,10 @@ import (
 )
 
 var (
-	ErrInvalidPath        = errors.New("db: invalid path")
+	ErrInvalidDir         = errors.New("db: invalid dir")
 	ErrOpenFailed         = errors.New("db: open failed")
+	ErrManifestNotFound   = errors.New("db: manifest not found")
+	ErrManifestLoadFailed = errors.New("db: manifest load failed")
 	ErrInitFailed         = errors.New("db: init failed")
 	ErrClosed             = errors.New("db: closed")
 	ErrCloseFailed        = errors.New("db: close failed")
