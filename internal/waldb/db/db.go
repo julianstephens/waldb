@@ -23,8 +23,8 @@ type DB struct {
 	closed   bool
 }
 
-// Open opens or creates a WAL database at the given directory path.
-// If the directory does not exist, it will be created.
+// Open opens an existing WAL database at the given directory path.
+// The directory and its manifest must already exist; otherwise an error is returned.
 // An optional logger can be provided; if nil, a no-op logger is used.
 // Returns the opened DB instance or an error.
 func Open(dir string, lg logger.Logger) (*DB, error) {
