@@ -21,7 +21,7 @@ type Manifest struct {
 	MaxKeyBytes        int  `json:"max_key_bytes"`
 	MaxValueBytes      int  `json:"max_value_bytes"`
 	WalSegmentMaxBytes int  `json:"wal_segment_max_bytes"`
-	WalSegmentNextID   *int `json:"wal_segment_next_id,omitempty"`
+	WalNextSegmentID   *int `json:"wal_next_segment_id,omitempty"`
 	WalLogMaxBytes     *int `json:"wal_log_max_bytes,omitempty"`
 	WalLogMaxBackups   *int `json:"wal_log_max_backups,omitempty"`
 }
@@ -34,7 +34,7 @@ func defaultManifest() *Manifest {
 		MaxKeyBytes:        record.MaxKeySize,
 		MaxValueBytes:      record.MaxValueSize,
 		WalSegmentMaxBytes: int(waldb.DefaultSegmentMaxBytes),
-		WalSegmentNextID:   nil,
+		WalNextSegmentID:   nil,
 		WalLogMaxBytes:     nil,
 		WalLogMaxBackups:   nil,
 	}

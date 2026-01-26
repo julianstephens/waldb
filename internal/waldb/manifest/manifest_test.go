@@ -123,7 +123,7 @@ func TestSave_MultipleTimes(t *testing.T) {
 	// Modify and save second time
 	manifest1.FsyncOnCommit = false
 	segID := 10
-	manifest1.WalSegmentNextID = &segID
+	manifest1.WalNextSegmentID = &segID
 	if err := manifest1.Save(tmpDir); err != nil {
 		t.Fatalf("second Save() error = %v", err)
 	}
@@ -137,8 +137,8 @@ func TestSave_MultipleTimes(t *testing.T) {
 	if opened.FsyncOnCommit {
 		t.Errorf("expected FsyncOnCommit=false after second save, got true")
 	}
-	if opened.WalSegmentNextID == nil || *opened.WalSegmentNextID != 10 {
-		t.Errorf("expected WalSegmentNextID=10, got %v", opened.WalSegmentNextID)
+	if opened.WalNextSegmentID == nil || *opened.WalNextSegmentID != 10 {
+		t.Errorf("expected WalSegmentNextID=10, got %v", opened.WalNextSegmentID)
 	}
 }
 

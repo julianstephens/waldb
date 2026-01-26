@@ -2,7 +2,6 @@ package db
 
 import (
 	"errors"
-	"io/fs"
 
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
@@ -38,7 +37,7 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 
 	mf, err := manifest.Open(dir)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, manifest.ErrManifestNotFound) {
 			lg.Error("manifest not found", err, "dir", dir)
 			return nil, wrapDBErr("open", ErrManifestNotFound, dir, err)
 		}

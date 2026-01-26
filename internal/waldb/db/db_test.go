@@ -12,20 +12,29 @@ import (
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 )
 
-func TestOpenCreatesManifest(t *testing.T) {
+func TestOpenRequiresManifest(t *testing.T) {
 	dbPath := t.TempDir()
 
-	// Initialize manifest first
+	// Open should fail when manifest doesn't exist
+	_, err := waldb.Open(dbPath, logger.NoOpLogger{})
+	tst.AssertNotNil(t, err, "expected error when manifest does not exist")
+}
+
+func TestOpenWithExistingManifest(t *testing.T) {
+	dbPath := t.TempDir()
+
+	// Initialize manifest first (simulating waldb init)
 	_, err := manifest.Init(dbPath)
 	tst.RequireNoError(t, err)
 
+	// Open should succeed with existing manifest
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
 	}()
 
-	// Verify manifest was created
+	// Verify manifest exists
 	_, err = os.Stat(dbPath + "/MANIFEST.json")
 	tst.RequireNoError(t, err)
 }
