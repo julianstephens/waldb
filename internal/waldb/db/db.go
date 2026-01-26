@@ -2,12 +2,15 @@ package db
 
 import (
 	"errors"
+	"fmt"
+	"io/fs"
 	"path/filepath"
 
 	"github.com/gofrs/flock"
 
 	"github.com/julianstephens/go-utils/helpers"
 	"github.com/julianstephens/waldb/internal/logger"
+	"github.com/julianstephens/waldb/internal/waldb"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/recovery"
@@ -48,7 +51,7 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 		}
 		if errors.Is(err, manifest.ErrManifestUnsupportedVersion) {
 			lg.Error("manifest has unsupported version", err, "dir", dir)
-			return nil, wrapDBErr("open", ErrOptionsMismatch, dir, err)
+			return nil, wrapDBErr("open", ErrFormatNotSupported, dir, err)
 		}
 		lg.Error("failed to open manifest", err, "dir", dir)
 		return nil, wrapDBErr("open", ErrManifestInvalid, dir, err)
@@ -63,7 +66,7 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 		manifest: mf,
 	}
 
-	if err := db.aquireDBLock(); err != nil {
+	if err := db.aquireLock(); err != nil {
 		return nil, err
 	}
 
@@ -87,6 +90,10 @@ func (db *DB) Close() error {
 	if err := db.wal.Close(); err != nil {
 		db.logger.Error("failed to close WAL log", err, "dir", db.dir)
 		return wrapDBErr("close", ErrCloseFailed, db.dir, err)
+	}
+
+	if err := db.releaseLock(); err != nil {
+		return err
 	}
 
 	db.closed = true
@@ -134,10 +141,11 @@ func (db *DB) Get(key []byte) ([]byte, bool) {
 
 // initialize sets up the WAL log, memtable, and replays existing transactions to restore the database state.
 func (db *DB) initialize() error {
-	log, err := wl.OpenLog(db.dir, wl.LogOpts{SegmentMaxBytes: int64(db.manifest.WalSegmentMaxBytes)}, db.logger)
+	logDir := filepath.Join(db.dir, waldb.WALDirName)
+	log, err := wl.OpenLog(logDir, wl.LogOpts{SegmentMaxBytes: int64(db.manifest.WalSegmentMaxBytes)}, db.logger)
 	if err != nil {
-		db.logger.Error("failed to open WAL log", err, "dir", db.dir)
-		return wrapDBErr("open", ErrWALOpenFailed, db.dir, err)
+		db.logger.Error("failed to open WAL log", err, "dir", logDir)
+		return wrapDBErr("open", ErrWALOpenFailed, logDir, err)
 	}
 	db.wal = log
 	db.memtable = memtable.New()
@@ -169,24 +177,64 @@ func (db *DB) initialize() error {
 }
 
 // validateDBDir checks if the given directory is a valid WAL database directory
-// by verifying the presence of required files and subdirectories.
+// by verifying the presence and validity of required files and subdirectories.
 func validateDBDir(dir string) error {
 	if dir == "" {
 		return wrapDBErr("open", ErrInvalidDir, dir, errors.New("directory path is empty"))
 	}
-
-	dbDirItems := []string{manifest.ManifestFileName, "LOCK", "wal"}
-	for _, item := range dbDirItems {
-		if !helpers.Exists(filepath.Join(dir, item)) {
-			return wrapDBErr("open", ErrInvalidDir, dir, errors.New("missing: "+item))
-		}
+	if _, err := validatePath(dir, true); err != nil {
+		return wrapDBErr("open", ErrInvalidDir, dir, err)
 	}
+
+	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
+	info, err := validatePath(manifestPath, false)
+	if err != nil {
+		return wrapDBErr("open", ErrManifestMissing, dir, err)
+	}
+	if !info.Mode().IsRegular() {
+		return wrapDBErr("open", ErrManifestInvalid, dir, fmt.Errorf("manifest is not a regular file: %s", manifestPath))
+	}
+
+	lockPath := filepath.Join(dir, waldb.LockFileName)
+	info, err = validatePath(lockPath, false)
+	if err != nil {
+		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("lock file invalid: %w", err))
+	}
+	if !info.Mode().IsRegular() {
+		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("lock file is not a regular file: %s", lockPath))
+	}
+
+	walDir := filepath.Join(dir, waldb.WALDirName)
+	if _, err := validatePath(walDir, true); err != nil {
+		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("WAL directory missing: %w", err))
+	}
+
 	return nil
 }
 
-// aquireDBLock attempts to acquire a file lock on the database directory to prevent concurrent access.
-func (db *DB) aquireDBLock() error {
-	lockPath := filepath.Join(db.dir, "LOCK")
+func validatePath(path string, isDir bool) (info fs.FileInfo, err error) {
+	exists, info, err := helpers.ExistsWithInfo(path)
+	if err != nil {
+		return
+	}
+	if !exists {
+		err = fmt.Errorf("path does not exist: %s", path)
+		return
+	}
+	if isDir && !info.IsDir() {
+		err = fmt.Errorf("expected directory but found file: %s", path)
+		return
+	}
+	if !isDir && info.IsDir() {
+		err = fmt.Errorf("expected file but found directory: %s", path)
+		return
+	}
+	return
+}
+
+// aquireLock attempts to acquire a file lock on the database directory to prevent concurrent access.
+func (db *DB) aquireLock() error {
+	lockPath := filepath.Join(db.dir, waldb.LockFileName)
 	fileLock := flock.New(lockPath)
 
 	locked, err := fileLock.TryLock()
@@ -202,5 +250,21 @@ func (db *DB) aquireDBLock() error {
 	db.lock = fileLock
 
 	db.logger.Info("acquired database lock", "lock_path", lockPath)
+	return nil
+}
+
+// releaseLock releases the file lock on the database directory.
+func (db *DB) releaseLock() error {
+	if db.lock == nil {
+		return nil
+	}
+
+	err := db.lock.Unlock()
+	if err != nil {
+		db.logger.Error("failed to release database lock", err, "dir", db.dir)
+		return wrapDBErr("close", ErrCloseFailed, db.dir, err)
+	}
+
+	db.logger.Info("released database lock", "dir", db.dir)
 	return nil
 }

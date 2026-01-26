@@ -12,6 +12,7 @@ var (
 	ErrManifestInvalid    = errors.New("db: manifest invalid")
 	ErrOptionsMismatch    = errors.New("db: options mismatch")
 	ErrLocked             = errors.New("db: locked by another process")
+	ErrFormatNotSupported = errors.New("db: format not supported")
 	ErrInitFailed         = errors.New("db: init failed")
 	ErrClosed             = errors.New("db: closed")
 	ErrCloseFailed        = errors.New("db: close failed")
