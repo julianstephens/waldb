@@ -1,14 +1,14 @@
 package e2e_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/julianstephens/waldb/internal/logger"
-
 	tst "github.com/julianstephens/go-utils/tests"
-	waldbcore "github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/logger"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
+	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 )
 
@@ -17,8 +17,12 @@ import (
 func TestIdStartsAtOne(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
 	// Open a brand-new DB (no segments)
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -40,8 +44,12 @@ func TestIdStartsAtOne(t *testing.T) {
 func TestIdSeededFromRecovery(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
 	// Phase 1: Create a DB and commit multiple batches
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	var txnIds []uint64
@@ -65,7 +73,7 @@ func TestIdSeededFromRecovery(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Phase 2: Reopen the DB and verify allocator is seeded from recovery
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db2, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -85,8 +93,12 @@ func TestIdSeededFromRecovery(t *testing.T) {
 func TestIdAcrossRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
 	// 1. Open(path) - fresh DB
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// 2. Commit batch A
@@ -101,7 +113,7 @@ func TestIdAcrossRestart(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// 4. Open(path) again
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db2, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()

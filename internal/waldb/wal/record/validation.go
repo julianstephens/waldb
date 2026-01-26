@@ -1,14 +1,16 @@
 package record
 
 const (
-	RecordHeaderSize     = 4                // Length of the record length field
-	RecordTypeHeaderSize = 1                // Length of the record type field
-	RecordCRCSize        = 4                // Length of the CRC32 field
-	MaxKeySize           = 4 * 1024         // 4 KB
-	MaxValueSize         = 4 * 1024 * 1024  // 4 MB
-	MaxRecordSize        = 16 * 1024 * 1024 // 16 MB
-	TxnIdSize            = 8                // Size of Transaction ID field (uint64)
-	PayloadHeaderSize    = 4                // Size of payload header (e.g., for key/value lengths)
+	RecordHeaderSize      = 4                                                       // Length of the record length field
+	RecordTypeHeaderSize  = 1                                                       // Length of the record type field
+	RecordCRCSize         = 4                                                       // Length of the CRC32 field
+	MinRecordFrameSize    = RecordHeaderSize + RecordTypeHeaderSize + RecordCRCSize // Minimum size of a valid record
+	MinSemanticRecordSize = MinRecordFrameSize + TxnIdSize                          // Minimum size of a semantic record (with TxnID)
+	MaxKeySize            = 4 * 1024                                                // 4 KB
+	MaxValueSize          = 4 * 1024 * 1024                                         // 4 MB
+	MaxRecordSize         = 16 * 1024 * 1024                                        // 16 MB
+	TxnIdSize             = 8                                                       // Size of Transaction ID field (uint64)
+	PayloadHeaderSize     = 4                                                       // Size of payload header (e.g., for key/value lengths)
 )
 
 // ValidateRecordLength checks if the given record length is within valid bounds.

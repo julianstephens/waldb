@@ -6,12 +6,47 @@ import (
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
+	"github.com/julianstephens/waldb/internal/logger"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
+	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 )
 
-func TestOpenClose(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
+func TestOpenRequiresManifest(t *testing.T) {
+	dbPath := t.TempDir()
+
+	// Open should fail when manifest doesn't exist
+	_, err := waldb.Open(dbPath, logger.NoOpLogger{})
+	tst.AssertNotNil(t, err, "expected error when manifest does not exist")
+}
+
+func TestOpenWithExistingManifest(t *testing.T) {
+	dbPath := t.TempDir()
+
+	// Initialize manifest first (simulating waldb init)
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	// Open should succeed with existing manifest
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
+	tst.RequireNoError(t, err)
+	defer func() {
+		_ = db.Close()
+	}()
+
+	// Verify manifest exists
+	_, err = os.Stat(dbPath + "/MANIFEST.json")
+	tst.RequireNoError(t, err)
+}
+
+func TestOpenWithLogger(t *testing.T) {
+	dbPath := t.TempDir()
+
+	// Initialize manifest first
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -30,7 +65,7 @@ func TestOpenClose(t *testing.T) {
 }
 
 func TestOpenEmptyPath(t *testing.T) {
-	_, err := waldb.Open("")
+	_, err := waldb.Open("", logger.NoOpLogger{})
 	tst.AssertNotNil(t, err, "expected error for empty path")
 }
 
@@ -120,7 +155,13 @@ func TestCommitOperations_TableDriven(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			db, err := waldb.Open(t.TempDir() + "/test.db")
+			dbPath := t.TempDir()
+
+			// Initialize manifest first
+			_, err := manifest.Init(dbPath)
+			tst.RequireNoError(t, err)
+
+			db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 			tst.RequireNoError(t, err)
 			defer func() {
 				_ = db.Close()
@@ -142,7 +183,13 @@ func TestCommitOperations_TableDriven(t *testing.T) {
 }
 
 func TestCommitMultipleDeletes(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
+	dbPath := t.TempDir()
+
+	// Initialize manifest first
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -166,7 +213,13 @@ func TestCommitMultipleDeletes(t *testing.T) {
 }
 
 func TestCommitMixedOperations(t *testing.T) {
-	db, err := waldb.Open(t.TempDir() + "/test.db")
+	dbPath := t.TempDir()
+
+	// Initialize manifest first
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -194,9 +247,17 @@ func TestCommitMixedOperations(t *testing.T) {
 
 func TestOpenCreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
-	dbPath := tmpDir + "/subdir/test.db"
+	dbPath := tmpDir + "/subdir"
 
-	db, err := waldb.Open(dbPath)
+	// Create the directory first
+	err := os.MkdirAll(dbPath, 0o750)
+	tst.RequireNoError(t, err)
+
+	// Initialize manifest
+	_, err = manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()

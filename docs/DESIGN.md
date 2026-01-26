@@ -78,8 +78,7 @@ WALDB maintains a small manifest file at `<dir>/MANIFEST.json`.
 - `max_value_bytes` (int)
 - `wal_segment_max_bytes` (int)
 - `wal_next_segment_id` (int) (optional; used only for naming convenience)
-- `wal_app_dir` (string) (optional; defaults to `~/.waldb`)
-- `wal_log_max_size` (int) (optional; defaults to `10 MiB`)
+- `wal_log_max_bytes` (int) (optional; defaults to `10 MiB`)
 - `wal_log_max_backups` (int) (optional; defaults to `3`)
 
 ### Manifest Write Rule (Atomic)

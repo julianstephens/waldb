@@ -2,17 +2,16 @@ package e2e_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
 	"github.com/julianstephens/waldb/internal/logger"
-	waldbcore "github.com/julianstephens/waldb/internal/waldb"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
+	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 )
-
-// === Section D: Ordering rule (validate → write WAL → flush → fsync → apply to memtable) ===
 
 // TestMemtableAppliedOnlyAfterCommitSuccess verifies that DB applies to memtable
 // only after txnw.Commit returns success. This ensures memtable is never modified
@@ -20,8 +19,12 @@ import (
 func TestMemtableAppliedOnlyAfterCommitSuccess(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
 	// Open DB normally (no injection)
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -46,7 +49,7 @@ func TestMemtableAppliedOnlyAfterCommitSuccess(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db2, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -69,8 +72,12 @@ func TestMemtableAppliedOnlyAfterCommitSuccess(t *testing.T) {
 func TestMemtableUnchangedOnWALWriteFailure(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
 	// Open DB normally with first batch
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -87,7 +94,7 @@ func TestMemtableUnchangedOnWALWriteFailure(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db2, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -114,7 +121,11 @@ func TestMemtableUnchangedOnWALWriteFailure(t *testing.T) {
 func TestErrorOnInvalidBatchMapsToDBError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -139,7 +150,11 @@ func TestErrorOnInvalidBatchMapsToDBError(t *testing.T) {
 func TestErrorOnCommitWriteFailure(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -157,7 +172,7 @@ func TestErrorOnCommitWriteFailure(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db2, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -220,7 +235,11 @@ func TestTxnErrorStagesAreStable(t *testing.T) {
 func TestCommitFailurePreventsDurability(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -253,7 +272,7 @@ func TestCommitFailurePreventsDurability(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db2, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -280,7 +299,11 @@ func TestCommitFailurePreventsDurability(t *testing.T) {
 func TestWALFailurePreventsDurabilityAndMemtableUpdate(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -315,7 +338,7 @@ func TestWALFailurePreventsDurabilityAndMemtableUpdate(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Phase 2: Reopen and verify both values are durable
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db2, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()
@@ -352,7 +375,11 @@ func TestWALFailurePreventsDurabilityAndMemtableUpdate(t *testing.T) {
 func TestMemtableNotUpdatedOnWALCommitFailure(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 
-	db, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db.Close()
@@ -388,7 +415,7 @@ func TestMemtableNotUpdatedOnWALCommitFailure(t *testing.T) {
 	err = db.Close()
 	tst.RequireNoError(t, err)
 
-	db2, err := waldb.OpenWithOptions(dbPath, waldbcore.OpenOptions{FsyncOnCommit: true}, logger.NoOpLogger{})
+	db2, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 	defer func() {
 		_ = db2.Close()

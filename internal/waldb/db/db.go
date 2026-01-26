@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/julianstephens/waldb/internal/logger"
-	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/recovery"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
@@ -13,61 +13,67 @@ import (
 
 // DB represents a WAL-based database instance.
 type DB struct {
-	path     string
+	dir      string
 	wal      *wl.Log
 	txnw     *txn.Writer
 	memtable *memtable.Table
-	opts     waldb.OpenOptions
+	manifest *manifest.Manifest
 	logger   logger.Logger
 	closed   bool
 }
 
-// Open opens or creates a WAL database at the given path with no logging.
-func Open(path string) (*DB, error) {
-	return OpenWithOptions(path, waldb.OpenOptions{}, logger.NoOpLogger{})
-}
-
-// OpenWithOptions opens or creates a WAL database with the given options and logger.
-// The caller is responsible for managing the logger lifecycle (including closing).
-// If logger is nil, a NoOpLogger is used.
-func OpenWithOptions(path string, opts waldb.OpenOptions, lg logger.Logger) (*DB, error) {
-	if path == "" {
-		return nil, wrapDBErr("open", ErrInvalidPath, path, nil)
+// Open opens an existing WAL database at the given directory path.
+// The directory and its manifest must already exist; otherwise an error is returned.
+// An optional logger can be provided; if nil, a no-op logger is used.
+// Returns the opened DB instance or an error.
+func Open(dir string, lg logger.Logger) (*DB, error) {
+	if dir == "" {
+		return nil, wrapDBErr("open", ErrInvalidDir, dir, nil)
 	}
 
 	if lg == nil {
-		lg = logger.NoOpLogger{}
+		lg = &logger.NoOpLogger{}
 	}
 
-	lg.Info("opening database", "path", path, "fsync_on_commit", opts.FsyncOnCommit)
+	mf, err := manifest.Open(dir)
+	if err != nil {
+		if errors.Is(err, manifest.ErrManifestNotFound) {
+			lg.Error("manifest not found", err, "dir", dir)
+			return nil, wrapDBErr("open", ErrManifestNotFound, dir, err)
+		}
+		lg.Error("failed to load manifest", err, "dir", dir)
+		return nil, wrapDBErr("open", ErrManifestLoadFailed, dir, err)
+	}
+
+	lg.Info("opening database", "dir", dir, "fsync_on_commit", mf.FsyncOnCommit)
 
 	db := &DB{
-		path:   path,
-		logger: lg,
-		closed: false,
-		opts:   opts,
+		dir:      dir,
+		logger:   lg,
+		closed:   false,
+		manifest: mf,
 	}
 
 	if err := db.initialize(); err != nil {
-		lg.Error("failed to initialize database", err, "path", path)
+		lg.Error("failed to initialize database", err, "dir", dir)
 		return nil, err
 	}
 
-	lg.Info("database opened successfully", "path", path)
+	lg.Info("database opened successfully", "dir", dir)
 	return db, nil
 }
 
 // Close closes the database.
 func (db *DB) Close() error {
 	if db.closed {
-		return wrapDBErr("close", ErrClosed, db.path, nil)
+		return wrapDBErr("close", ErrClosed, db.dir, nil)
 	}
 
-	db.logger.Info("closing database", "path", db.path)
+	db.logger.Info("closing database", "dir", db.dir)
 
 	if err := db.wal.Close(); err != nil {
-		db.logger.Error("failed to close WAL log", err, "path", db.path)
-		return wrapDBErr("close", ErrCloseFailed, db.path, err)
+		db.logger.Error("failed to close WAL log", err, "dir", db.dir)
+		return wrapDBErr("close", ErrCloseFailed, db.dir, err)
 	}
 
 	db.closed = true
@@ -76,7 +82,7 @@ func (db *DB) Close() error {
 
 // Path returns the database path.
 func (db *DB) Path() string {
-	return db.path
+	return db.dir
 }
 
 // IsClosed returns true if the database is closed.
@@ -89,16 +95,16 @@ func (db *DB) IsClosed() bool {
 func (db *DB) Commit(b *txn.Batch) (uint64, error) {
 	txnId, err := db.txnw.Commit(b)
 	if err != nil {
-		db.logger.Error("commit failed", err, "path", db.path, "count", len(b.Ops()))
+		db.logger.Error("commit failed", err, "dir", db.dir, "count", len(b.Ops()))
 		if errors.Is(err, txn.ErrCommitInvalidBatch) {
-			return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.path, err)
+			return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.dir, err)
 		}
-		return 0, wrapDBErr("commit", ErrCommitFailed, db.path, err)
+		return 0, wrapDBErr("commit", ErrCommitFailed, db.dir, err)
 	}
 
 	if err := db.memtable.Apply(b.Ops()); err != nil {
-		db.logger.Error("failed to apply batch to memtable", err, "path", db.path, "txn", txnId)
-		return txnId, wrapDBErr("commit", ErrCommitFailed, db.path, err)
+		db.logger.Error("failed to apply batch to memtable", err, "dir", db.dir, "txn", txnId)
+		return txnId, wrapDBErr("commit", ErrCommitFailed, db.dir, err)
 	}
 
 	db.logger.Info("commit successful", "txn", txnId, "count", len(b.Ops()))
@@ -113,11 +119,12 @@ func (db *DB) Get(key []byte) ([]byte, bool) {
 	return value, ok
 }
 
+// initialize sets up the WAL log, memtable, and replays existing transactions to restore the database state.
 func (db *DB) initialize() error {
-	log, err := wl.OpenLog(db.path, wl.LogOpts{SegmentMaxBytes: waldb.DefaultSegmentMaxBytes}, db.logger)
+	log, err := wl.OpenLog(db.dir, wl.LogOpts{SegmentMaxBytes: int64(db.manifest.WalSegmentMaxBytes)}, db.logger)
 	if err != nil {
-		db.logger.Error("failed to open WAL log", err, "path", db.path)
-		return wrapDBErr("open", ErrWALOpenFailed, db.path, err)
+		db.logger.Error("failed to open WAL log", err, "dir", db.dir)
+		return wrapDBErr("open", ErrWALOpenFailed, db.dir, err)
 	}
 	db.wal = log
 	db.memtable = memtable.New()
@@ -131,19 +138,19 @@ func (db *DB) initialize() error {
 	db.logger.Info("starting recovery", "seg_count", len(segIds))
 	res, err := recovery.Replay(db.wal, start, db.memtable, db.logger)
 	if err != nil {
-		db.logger.Error("recovery failed", err, "path", db.path)
-		return wrapDBErr("replay", ErrReplayFailed, db.path, err)
+		db.logger.Error("recovery failed", err, "dir", db.dir)
+		return wrapDBErr("replay", ErrReplayFailed, db.dir, err)
 	}
 
 	db.logger.Info("recovery complete", "next_txn_id", res.NextTxnId, "last_committed_txn_id", res.LastCommittedTxnId)
 
 	allocator, err := txn.NewCounterAllocator(res.NextTxnId)
 	if err != nil {
-		db.logger.Error("failed to create transaction allocator", err, "path", db.path, "next_txn_id", res.NextTxnId)
-		return wrapDBErr("init", ErrInitFailed, db.path, err)
+		db.logger.Error("failed to create transaction allocator", err, "dir", db.dir, "next_txn_id", res.NextTxnId)
+		return wrapDBErr("init", ErrInitFailed, db.dir, err)
 	}
 
-	db.txnw = txn.NewWriter(allocator, db.wal, txn.WriterOpts{FsyncOnCommit: db.opts.FsyncOnCommit}, db.logger)
+	db.txnw = txn.NewWriter(allocator, db.wal, txn.WriterOpts{FsyncOnCommit: db.manifest.FsyncOnCommit}, db.logger)
 
 	return nil
 }
