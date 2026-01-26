@@ -2,7 +2,11 @@ package db
 
 import (
 	"errors"
+	"path/filepath"
 
+	"github.com/gofrs/flock"
+
+	"github.com/julianstephens/go-utils/helpers"
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
@@ -14,6 +18,7 @@ import (
 // DB represents a WAL-based database instance.
 type DB struct {
 	dir      string
+	lock     *flock.Flock
 	wal      *wl.Log
 	txnw     *txn.Writer
 	memtable *memtable.Table
@@ -27,8 +32,8 @@ type DB struct {
 // An optional logger can be provided; if nil, a no-op logger is used.
 // Returns the opened DB instance or an error.
 func Open(dir string, lg logger.Logger) (*DB, error) {
-	if dir == "" {
-		return nil, wrapDBErr("open", ErrInvalidDir, dir, nil)
+	if err := validateDBDir(dir); err != nil {
+		return nil, err
 	}
 
 	if lg == nil {
@@ -39,10 +44,14 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 	if err != nil {
 		if errors.Is(err, manifest.ErrManifestNotFound) {
 			lg.Error("manifest not found", err, "dir", dir)
-			return nil, wrapDBErr("open", ErrManifestNotFound, dir, err)
+			return nil, wrapDBErr("open", ErrManifestMissing, dir, err)
 		}
-		lg.Error("failed to load manifest", err, "dir", dir)
-		return nil, wrapDBErr("open", ErrManifestLoadFailed, dir, err)
+		if errors.Is(err, manifest.ErrManifestUnsupportedVersion) {
+			lg.Error("manifest has unsupported version", err, "dir", dir)
+			return nil, wrapDBErr("open", ErrOptionsMismatch, dir, err)
+		}
+		lg.Error("failed to open manifest", err, "dir", dir)
+		return nil, wrapDBErr("open", ErrManifestInvalid, dir, err)
 	}
 
 	lg.Info("opening database", "dir", dir, "fsync_on_commit", mf.FsyncOnCommit)
@@ -52,6 +61,10 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 		logger:   lg,
 		closed:   false,
 		manifest: mf,
+	}
+
+	if err := db.aquireDBLock(); err != nil {
+		return nil, err
 	}
 
 	if err := db.initialize(); err != nil {
@@ -152,5 +165,42 @@ func (db *DB) initialize() error {
 
 	db.txnw = txn.NewWriter(allocator, db.wal, txn.WriterOpts{FsyncOnCommit: db.manifest.FsyncOnCommit}, db.logger)
 
+	return nil
+}
+
+// validateDBDir checks if the given directory is a valid WAL database directory
+// by verifying the presence of required files and subdirectories.
+func validateDBDir(dir string) error {
+	if dir == "" {
+		return wrapDBErr("open", ErrInvalidDir, dir, errors.New("directory path is empty"))
+	}
+
+	dbDirItems := []string{manifest.ManifestFileName, "LOCK", "wal"}
+	for _, item := range dbDirItems {
+		if !helpers.Exists(filepath.Join(dir, item)) {
+			return wrapDBErr("open", ErrInvalidDir, dir, errors.New("missing: "+item))
+		}
+	}
+	return nil
+}
+
+// aquireDBLock attempts to acquire a file lock on the database directory to prevent concurrent access.
+func (db *DB) aquireDBLock() error {
+	lockPath := filepath.Join(db.dir, "LOCK")
+	fileLock := flock.New(lockPath)
+
+	locked, err := fileLock.TryLock()
+	if err != nil {
+		db.logger.Error("failed to acquire file lock", err, "lock_path", lockPath)
+		return wrapDBErr("open", ErrOpenFailed, db.dir, err)
+	}
+	if !locked {
+		db.logger.Error("database is already locked by another process", nil, "lock_path", lockPath)
+		return wrapDBErr("open", ErrLocked, db.dir, errors.New("database is locked"))
+	}
+
+	db.lock = fileLock
+
+	db.logger.Info("acquired database lock", "lock_path", lockPath)
 	return nil
 }
