@@ -40,7 +40,7 @@ func defaultManifest() *Manifest {
 	}
 }
 
-// Init creates a new manifest file with default setting
+// Init creates a new manifest file with default settings
 func Init(dir string) (m *Manifest, err error) {
 	manifestPath := filepath.Join(dir, ManifestFileName)
 

@@ -138,7 +138,7 @@ func TestSave_MultipleTimes(t *testing.T) {
 		t.Errorf("expected FsyncOnCommit=false after second save, got true")
 	}
 	if opened.WalNextSegmentID == nil || *opened.WalNextSegmentID != 10 {
-		t.Errorf("expected WalSegmentNextID=10, got %v", opened.WalNextSegmentID)
+		t.Errorf("expected WalNextSegmentID=10, got %v", opened.WalNextSegmentID)
 	}
 }
 
