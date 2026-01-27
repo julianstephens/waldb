@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"sync"
 
 	"github.com/gofrs/flock"
 
@@ -26,6 +27,7 @@ type DB struct {
 	txnw     *txn.Writer
 	memtable *memtable.Table
 	manifest *manifest.Manifest
+	mu       *sync.RWMutex
 	logger   logger.Logger
 	closed   bool
 }
@@ -64,25 +66,28 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 		logger:   lg,
 		closed:   false,
 		manifest: mf,
+		mu:       &sync.RWMutex{},
 	}
 
-	if err := db.aquireLock(); err != nil {
+	if err := db.acquireLock(); err != nil {
 		return nil, err
 	}
 
 	if err := db.initialize(); err != nil {
 		lg.Error("failed to initialize database", err, "dir", dir)
-		return nil, err
+	} else {
+		lg.Info("database opened successfully", "dir", dir)
 	}
-
-	lg.Info("database opened successfully", "dir", dir)
-	return db, nil
+	return db, db.cleanupOnError(err)
 }
 
-// Close closes the database.
+// Close closes the database. If the database is already closed, it does nothing and returns nil.
 func (db *DB) Close() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
 	if db.closed {
-		return wrapDBErr("close", ErrClosed, db.dir, nil)
+		return nil
 	}
 
 	db.logger.Info("closing database", "dir", db.dir)
@@ -107,12 +112,27 @@ func (db *DB) Path() string {
 
 // IsClosed returns true if the database is closed.
 func (db *DB) IsClosed() bool {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
 	return db.closed
 }
 
 // Commit applies the operations in the given batch as a single transaction.
 // It writes the transaction to the WAL and updates the in-memory state.
+// Returns the transaction ID or an error.
 func (db *DB) Commit(b *txn.Batch) (uint64, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if db.closed {
+		return 0, wrapDBErr("commit", ErrClosed, db.dir, nil)
+	}
+
+	return db._commit(b)
+}
+
+func (db *DB) _commit(b *txn.Batch) (uint64, error) {
 	txnId, err := db.txnw.Commit(b)
 	if err != nil {
 		db.logger.Error("commit failed", err, "dir", db.dir, "count", len(b.Ops()))
@@ -131,12 +151,93 @@ func (db *DB) Commit(b *txn.Batch) (uint64, error) {
 	return txnId, nil
 }
 
-// Get retrieves the value associated with the given key from the in-memory memtable.
-// Returns the value and true if the key exists and is not deleted, otherwise returns nil and false.
-func (db *DB) Get(key []byte) ([]byte, bool) {
+// Get retrieves the value associated with the given key.
+// If the key does not exist, it returns "not found".
+func (db *DB) Get(key []byte) ([]byte, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	if db.closed {
+		return nil, wrapDBErr("get", ErrClosed, db.dir, nil)
+	}
+
+	if err := db.validateKey(key); err != nil {
+		db.logger.Error("invalid key for get operation", err, "key_size", len(key))
+		if dbErr, ok := err.(*DBError); ok {
+			dbErr.Op = "get"
+			return nil, dbErr
+		}
+		return nil, err
+	}
 	value, ok := db.memtable.Get(key)
 	db.logger.Debug("get operation", "key_size", len(key), "found", ok, "value_size", len(value))
-	return value, ok
+	if !ok {
+		return nil, wrapDBErr("get", ErrKeyNotFound, db.dir, nil)
+	}
+	return value, nil
+}
+
+// Put sets the value for the given key in the database.
+// It validates the key and value sizes before committing the operation.
+func (db *DB) Put(key, value []byte) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if db.closed {
+		return wrapDBErr("put", ErrClosed, db.dir, nil)
+	}
+
+	if err := db.validateKey(key); err != nil {
+		db.logger.Error("invalid key for put operation", err, "key_size", len(key))
+		if dbErr, ok := err.(*DBError); ok {
+			dbErr.Op = "put"
+			return dbErr
+		}
+		return err
+	}
+	if err := db.validateValue(value); err != nil {
+		db.logger.Error("invalid value for put operation", err, "value_size", len(value))
+		if dbErr, ok := err.(*DBError); ok {
+			dbErr.Op = "put"
+			return dbErr
+		}
+		return err
+	}
+	b := txn.NewBatch()
+	b.Put(key, value)
+	if _, err := db._commit(b); err != nil {
+		return err
+	}
+
+	db.logger.Debug("put operation", "key_size", len(key), "value_size", len(value))
+	return nil
+}
+
+func (db *DB) Delete(key []byte) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if db.closed {
+		return wrapDBErr("delete", ErrClosed, db.dir, nil)
+	}
+
+	if err := db.validateKey(key); err != nil {
+		db.logger.Error("invalid key for delete operation", err, "key_size", len(key))
+		if dbErr, ok := err.(*DBError); ok {
+			dbErr.Op = "delete"
+			return dbErr
+		}
+		return err
+	}
+
+	b := txn.NewBatch()
+	b.Delete(key)
+	if _, err := db._commit(b); err != nil {
+		return err
+	}
+
+	db.logger.Debug("delete operation", "key_size", len(key))
+	return nil
 }
 
 // initialize sets up the WAL log, memtable, and replays existing transactions to restore the database state.
@@ -192,7 +293,12 @@ func validateDBDir(dir string) error {
 		return wrapDBErr("open", ErrManifestMissing, dir, err)
 	}
 	if !info.Mode().IsRegular() {
-		return wrapDBErr("open", ErrManifestInvalid, dir, fmt.Errorf("manifest is not a regular file: %s", manifestPath))
+		return wrapDBErr(
+			"open",
+			ErrManifestInvalid,
+			dir,
+			fmt.Errorf("manifest is not a regular file: %s", manifestPath),
+		)
 	}
 
 	lockPath := filepath.Join(dir, waldb.LockFileName)
@@ -232,8 +338,8 @@ func validatePath(path string, isDir bool) (info fs.FileInfo, err error) {
 	return
 }
 
-// aquireLock attempts to acquire a file lock on the database directory to prevent concurrent access.
-func (db *DB) aquireLock() error {
+// acquireLock attempts to acquire a file lock on the database directory to prevent concurrent access.
+func (db *DB) acquireLock() error {
 	lockPath := filepath.Join(db.dir, waldb.LockFileName)
 	fileLock := flock.New(lockPath)
 
@@ -259,12 +365,74 @@ func (db *DB) releaseLock() error {
 		return nil
 	}
 
-	err := db.lock.Unlock()
-	if err != nil {
+	if err := db.lock.Unlock(); err != nil {
 		db.logger.Error("failed to release database lock", err, "dir", db.dir)
 		return wrapDBErr("close", ErrCloseFailed, db.dir, err)
 	}
 
 	db.logger.Info("released database lock", "dir", db.dir)
+	return nil
+}
+
+func (db *DB) cleanupOnError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	lg := db.logger
+	if db.wal != nil {
+		if err := db.wal.Close(); err != nil {
+			lg.Error("failed to close WAL during cleanup", err, "dir", db.dir)
+		}
+	}
+
+	if db.lock != nil {
+		if err := db.releaseLock(); err != nil {
+			lg.Error("failed to release lock during cleanup", err, "dir", db.dir)
+		}
+	}
+	return err
+}
+
+func (db *DB) validateKey(key []byte) error {
+	if key == nil {
+		return &DBError{
+			Err:   ErrInvalidKey,
+			Cause: errors.New("key is nil"),
+			Path:  db.dir,
+		}
+	}
+	if len(key) == 0 {
+		return &DBError{
+			Err:   ErrInvalidKey,
+			Cause: errors.New("key is empty"),
+			Path:  db.dir,
+		}
+	}
+	if len(key) > db.manifest.MaxKeyBytes {
+		return &DBError{
+			Err:   ErrKeyTooLarge,
+			Cause: errors.New("key is size exceeds maximum"),
+			Path:  db.dir,
+		}
+	}
+	return nil
+}
+
+func (db *DB) validateValue(value []byte) error {
+	if value == nil {
+		return &DBError{
+			Err:   ErrInvalidValue,
+			Cause: errors.New("value is nil"),
+			Path:  db.dir,
+		}
+	}
+	if len(value) > db.manifest.MaxValueBytes {
+		return &DBError{
+			Err:   ErrValueTooLarge,
+			Cause: errors.New("value size exceeds maximum"),
+			Path:  db.dir,
+		}
+	}
 	return nil
 }
