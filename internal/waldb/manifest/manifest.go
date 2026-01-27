@@ -12,8 +12,6 @@ import (
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
 
-const ManifestFileName = "MANIFEST.json"
-
 // Manifest represents the database manifest file structure
 type Manifest struct {
 	FormatVersion      int  `json:"format_version"`
@@ -26,8 +24,8 @@ type Manifest struct {
 	WalLogMaxBackups   *int `json:"wal_log_max_backups,omitempty"`
 }
 
-// defaultManifest returns a Manifest with default settings
-func defaultManifest() *Manifest {
+// DefaultManifest returns a Manifest with default settings
+func DefaultManifest() *Manifest {
 	return &Manifest{
 		FormatVersion:      waldb.ManifestVersion,
 		FsyncOnCommit:      true,
@@ -42,7 +40,7 @@ func defaultManifest() *Manifest {
 
 // Init creates a new manifest file with default settings
 func Init(dir string) (m *Manifest, err error) {
-	manifestPath := filepath.Join(dir, ManifestFileName)
+	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); exists {
 		err = &ManifestError{
@@ -52,7 +50,7 @@ func Init(dir string) (m *Manifest, err error) {
 		return
 	}
 
-	m = defaultManifest()
+	m = DefaultManifest()
 	data, err2 := jsonutil.Marshal(m)
 	if err2 != nil {
 		err = &ManifestError{Kind: ManifestErrorKindEncode, Err: err2}
@@ -67,7 +65,7 @@ func Init(dir string) (m *Manifest, err error) {
 
 // Open reads the manifest from disk
 func Open(dir string) (m *Manifest, err error) {
-	manifestPath := filepath.Join(dir, ManifestFileName)
+	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); !exists {
 		err = &ManifestError{Kind: ManifestErrorKindNotFound, Err: fs.ErrNotExist}
@@ -97,7 +95,7 @@ func Open(dir string) (m *Manifest, err error) {
 
 // Save writes the manifest to disk
 func (m *Manifest) Save(dir string) error {
-	manifestPath := filepath.Join(dir, ManifestFileName)
+	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); !exists {
 		return &ManifestError{Kind: ManifestErrorKindNotFound, Err: fs.ErrNotExist}

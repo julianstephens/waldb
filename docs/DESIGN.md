@@ -155,6 +155,9 @@ Within a batch/txn:
 - failure to acquire DB write lock
 - corruption detected in existing DB files (open-time checks)
 
+WAL is the source of truth. In-process memtable failure does not roll back durable WAL state; recovery reconciles on restart
+
+
 ---
 
 ## Durability Model and fsync Boundary
