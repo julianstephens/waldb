@@ -76,10 +76,11 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 
 	if err = db.initialize(); err != nil {
 		lg.Error("failed to initialize database", err, "dir", dir)
-	} else {
-		lg.Info("database opened successfully", "dir", dir)
+		return nil, db.cleanupOnError(wrapDBErr("open", ErrOpenFailed, dir, err))
 	}
-	return db, db.cleanupOnError(err)
+
+	lg.Info("database opened successfully", "dir", dir)
+	return db, nil
 }
 
 // Close closes the database. If the database is already closed, it does nothing and returns nil.
