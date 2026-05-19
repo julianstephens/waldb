@@ -427,7 +427,7 @@ func (db *DB) validateKey(key []byte) error {
 	if len(key) > db.manifest.MaxKeyBytes {
 		return &DBError{
 			Err:   ErrKeyTooLarge,
-			Cause: errors.New("key is size exceeds maximum"),
+			Cause: errors.New("key size exceeds maximum"),
 			Path:  db.dir,
 		}
 	}
