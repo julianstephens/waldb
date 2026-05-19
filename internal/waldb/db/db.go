@@ -228,6 +228,11 @@ func (db *DB) Put(key, value []byte) error {
 	return nil
 }
 
+// Delete removes the given key from the database.
+// It validates the key before committing the delete operation.
+// Deleting a non-existent key is not treated as an error by this method.
+// Delete returns ErrClosed if the database has been closed, and may return
+// validation errors such as ErrInvalidKey from key validation.
 func (db *DB) Delete(key []byte) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
