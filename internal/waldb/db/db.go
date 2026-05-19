@@ -131,10 +131,10 @@ func (db *DB) Commit(b *txn.Batch) (uint64, error) {
 		return 0, wrapDBErr("commit", ErrClosed, db.dir, nil)
 	}
 
-	return db._commit(b)
+	return db.commitLocked(b)
 }
 
-func (db *DB) _commit(b *txn.Batch) (uint64, error) {
+func (db *DB) commitLocked(b *txn.Batch) (uint64, error) {
 	for _, op := range b.Ops() {
 		if err := db.validateKey(op.Key); err != nil {
 			db.logger.Error("invalid key in batch operation", err, "key_size", len(op.Key))
@@ -220,7 +220,7 @@ func (db *DB) Put(key, value []byte) error {
 	}
 	b := txn.NewBatch()
 	b.Put(key, value)
-	if _, err := db._commit(b); err != nil {
+	if _, err := db.commitLocked(b); err != nil {
 		return err
 	}
 
@@ -247,7 +247,7 @@ func (db *DB) Delete(key []byte) error {
 
 	b := txn.NewBatch()
 	b.Delete(key)
-	if _, err := db._commit(b); err != nil {
+	if _, err := db.commitLocked(b); err != nil {
 		return err
 	}
 
