@@ -34,8 +34,8 @@ type CLI struct {
 	// Internal logger, not exposed as CLI flag
 	Logger logger.Logger `kong:"-"`
 	// nolint:golines // keep struct field aligned
-	LogOpts LogOpts     `         embed:"" prefix:"log-" help:"Logging options"`
-	Version VersionFlag `                                help:"Show version information" short:"V"`
+	LogOpts LogOpts     `embed:"" prefix:"log-" help:"Logging options"`
+	Version VersionFlag `                       help:"Show version information" short:"V"`
 }
 
 type VersionFlag string

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -580,7 +581,7 @@ func TestConcurrency_ConcurrentCommitsSerialize(t *testing.T) {
 		go func(index int) {
 			defer wg.Done()
 			batch := txn.NewBatch()
-			key := []byte("concurrent_key_" + string(rune(index)))
+			key := []byte("concurrent_key_" + strconv.Itoa(index))
 			batch.Put(key, []byte("value"))
 			txnId, err := db.Commit(batch)
 			if err == nil {
@@ -623,8 +624,8 @@ func TestConcurrency_NoCorruptionUnderContention(t *testing.T) {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			key := []byte("key_" + string(rune(index%5)))
-			value := []byte("value_" + string(rune(index)))
+			key := []byte("key_" + strconv.Itoa(index%5))
+			value := []byte("value_" + strconv.Itoa(index))
 
 			// Alternate between Put and Get
 			if index%2 == 0 {

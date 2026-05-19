@@ -3,6 +3,7 @@ package wal_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
@@ -161,7 +162,7 @@ func TestOpenSegmentOperations(t *testing.T) {
 			reader, err := provider.OpenSegment(tc.segmentID)
 
 			if tc.expectError {
-				tst.AssertTrue(t, err != nil, "expected error opening segment "+string(rune(tc.segmentID)))
+				tst.AssertTrue(t, err != nil, "expected error opening segment "+strconv.FormatUint(tc.segmentID, 10))
 			} else {
 				tst.RequireNoError(t, err)
 				tst.AssertNotNil(t, reader, "expected non-nil reader")

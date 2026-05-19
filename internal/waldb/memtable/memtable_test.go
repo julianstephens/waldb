@@ -647,14 +647,14 @@ func TestManyKeys(t *testing.T) {
 
 	// Put many keys
 	for i := 0; i < numKeys; i++ {
-		key := []byte{byte(i >> 8), byte(i)}
+		key := []byte{byte(i >> 8), byte(i & 0xFF)}
 		value := []byte("value")
 		_ = tbl.Put(key, value)
 	}
 
 	// Verify all can be retrieved
 	for i := 0; i < numKeys; i++ {
-		key := []byte{byte(i >> 8), byte(i)}
+		key := []byte{byte(i >> 8), byte(i & 0xFF)}
 		_, ok := tbl.Get(key)
 		if !ok {
 			t.Errorf("key %d not found", i)

@@ -8,10 +8,11 @@ import (
 	"sync"
 
 	"github.com/gofrs/flock"
-
 	"github.com/julianstephens/go-utils/helpers"
+
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
 	"github.com/julianstephens/waldb/internal/waldb/recovery"
@@ -69,11 +70,11 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 		mu:       &sync.RWMutex{},
 	}
 
-	if err := db.acquireLock(); err != nil {
+	if err = db.acquireLock(); err != nil {
 		return nil, err
 	}
 
-	if err := db.initialize(); err != nil {
+	if err = db.initialize(); err != nil {
 		lg.Error("failed to initialize database", err, "dir", dir)
 	} else {
 		lg.Info("database opened successfully", "dir", dir)
@@ -133,6 +134,19 @@ func (db *DB) Commit(b *txn.Batch) (uint64, error) {
 }
 
 func (db *DB) _commit(b *txn.Batch) (uint64, error) {
+	for _, op := range b.Ops() {
+		if err := db.validateKey(op.Key); err != nil {
+			db.logger.Error("invalid key in batch operation", err, "key_size", len(op.Key))
+			return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.dir, err)
+		}
+		if op.Kind == kv.OpPut {
+			if err := db.validateValue(op.Value); err != nil {
+				db.logger.Error("invalid value in batch operation", err, "value_size", len(op.Value))
+				return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.dir, err)
+			}
+		}
+	}
+
 	txnId, err := db.txnw.Commit(b)
 	if err != nil {
 		db.logger.Error("commit failed", err, "dir", db.dir, "count", len(b.Ops()))
