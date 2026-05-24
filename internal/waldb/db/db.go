@@ -35,6 +35,10 @@ type DB struct {
 	closed      bool
 }
 
+// manifestInitFn is the function used to initialize the manifest.
+// It is a variable so it can be replaced in tests.
+var manifestInitFn = manifest.Init
+
 // Init initializes a new WAL database at the given directory path.
 // It creates the necessary directory structure and manifest file.
 // If the directory already exists and is not empty, it returns an error
@@ -72,21 +76,39 @@ func Init(dir string, lg logger.Logger) error {
 		lg.Error("failed to ensure database directory", err, "dir", dir)
 		return wrapDBErr("init", ErrInitFailed, dir, err)
 	}
+
+	created := []string{}
 	lg.Debug("creating WAL directory", "dir", dir)
-	if err := helpers.Ensure(filepath.Join(dir, waldb.WALDirName), true); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, waldb.WALDirName), 0750); err != nil {
 		lg.Error("failed to create WAL directory", err, "dir", dir)
 		return wrapDBErr("init", ErrInitFailed, dir, err)
 	}
+	created = append(created, waldb.WALDirName)
 
 	lg.Debug("creating lock file", "dir", dir)
-	if err := helpers.Ensure(filepath.Join(dir, waldb.LockFileName), false); err != nil {
+	if file, err := os.Create(filepath.Join(dir, waldb.LockFileName)); err != nil { // nolint:gosec
 		lg.Error("failed to create lock file", err, "dir", dir)
 		return wrapDBErr("init", ErrInitFailed, dir, err)
+	} else {
+		if err := file.Close(); err != nil {
+			lg.Error("failed to close lock file", err, "dir", dir)
+			return wrapDBErr("init", ErrInitFailed, dir, err)
+		}
 	}
+	created = append(created, waldb.LockFileName)
 
 	lg.Debug("initializing manifest", "dir", dir)
-	if _, err := manifest.Init(dir); err != nil {
+	if _, err := manifestInitFn(dir); err != nil {
 		lg.Error("failed to initialize manifest", err, "dir", dir)
+		lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
+		for _, name := range created {
+			path := filepath.Join(dir, name)
+			if err := os.RemoveAll(path); err != nil {
+				lg.Error("failed to clean up path during init error handling", err, "path", path)
+			} else {
+				lg.Debug("cleaned up path during init error handling", "path", path)
+			}
+		}
 		return wrapDBErr("init", ErrInitFailed, dir, err)
 	}
 

@@ -3,6 +3,7 @@ package db_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -987,6 +988,33 @@ func TestInit_PartialLayout_RejectedByOpenAndInit(t *testing.T) {
 	tst.AssertNotNil(t, err, "expected Init to fail when directory already has partial layout")
 	tst.AssertTrue(t, errors.Is(err, waldb_db.ErrAlreadyExists),
 		"expected ErrAlreadyExists for non-empty directory")
+}
+
+// AC3: When manifest.Init fails, Init cleans up the WAL directory and lock file
+// it created so no partial state is left on disk.
+func TestInit_ManifestFailure_CleansUpCreatedFiles(t *testing.T) {
+	dbPath := t.TempDir() + "/cleanupdb"
+
+	// Inject a failing manifest init function.
+	manifestErr := errors.New("simulated manifest failure")
+	*waldb_db.ManifestInitFn = func(dir string) (*manifest.Manifest, error) {
+		return nil, manifestErr
+	}
+	t.Cleanup(waldb_db.ResetManifestInitFn)
+
+	err := waldb_db.Init(dbPath, logger.NoOpLogger{})
+	tst.AssertNotNil(t, err, "expected Init to fail when manifest.Init fails")
+	tst.AssertTrue(t, errors.Is(err, waldb_db.ErrInitFailed), "expected ErrInitFailed")
+
+	// WAL directory must have been removed by cleanup.
+	_, statErr := os.Stat(filepath.Join(dbPath, waldb.WALDirName))
+	tst.AssertTrue(t, os.IsNotExist(statErr),
+		"expected WAL directory to be cleaned up after manifest failure")
+
+	// Lock file must have been removed by cleanup.
+	_, statErr = os.Stat(filepath.Join(dbPath, waldb.LockFileName))
+	tst.AssertTrue(t, os.IsNotExist(statErr),
+		"expected lock file to be cleaned up after manifest failure")
 }
 
 // AC4: Open rejects a directory that is missing the WAL subdirectory.
