@@ -1,4 +1,4 @@
-package waldb
+package config
 
 // WAL segment file defaults
 const (

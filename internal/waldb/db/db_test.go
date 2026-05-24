@@ -3,6 +3,7 @@ package db_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -10,9 +11,12 @@ import (
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
+
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/testutil"
+	"github.com/julianstephens/waldb/internal/waldb/config"
 	waldb_db "github.com/julianstephens/waldb/internal/waldb/db"
+	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
@@ -43,7 +47,7 @@ func TestOpenWithExistingManifest(t *testing.T) {
 	}()
 
 	// Verify manifest exists
-	_, err = os.Stat(dbPath + "/MANIFEST.json")
+	_, err = os.Stat(filepath.Join(dbPath, config.ManifestFileName))
 	tst.RequireNoError(t, err)
 }
 
@@ -243,7 +247,7 @@ func TestCommitMixedOperations(t *testing.T) {
 
 func TestOpenCreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
-	dbPath := tmpDir + "/subdir"
+	dbPath := filepath.Join(tmpDir, "subdir")
 
 	// Create the directory first
 	err := os.MkdirAll(dbPath, 0o750)
@@ -794,4 +798,41 @@ func TestOperationsFailAfterClose(t *testing.T) {
 	batch.Put([]byte("key"), []byte("value"))
 	_, err = db.Commit(batch)
 	tst.AssertTrue(t, errors.Is(err, waldb_db.ErrClosed), "expected Commit to fail after Close")
+}
+
+// AC4: Open rejects a directory that is missing the WAL subdirectory.
+func TestOpen_MissingWALDir_ReturnsError(t *testing.T) {
+	dbPath := t.TempDir()
+
+	// Create manifest and lock file but omit the WAL directory.
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	lockPath := filepath.Join(dbPath, config.LockFileName)
+	f, err := os.Create(lockPath) // nolint:gosec
+	tst.RequireNoError(t, err)
+	tst.RequireNoError(t, f.Close())
+
+	_, err = waldb_db.Open(dbPath, logger.NoOpLogger{})
+	tst.AssertNotNil(t, err, "expected error when WAL directory is missing")
+	tst.AssertTrue(t, errors.Is(err, waldb_db.ErrInvalidDir),
+		"expected ErrInvalidDir when WAL directory is absent")
+}
+
+// AC4: Open rejects a directory that is missing the lock file.
+func TestOpen_MissingLockFile_ReturnsError(t *testing.T) {
+	dbPath := t.TempDir()
+
+	// Create manifest and WAL directory but omit the lock file.
+	_, err := manifest.Init(dbPath)
+	tst.RequireNoError(t, err)
+
+	walDir := filepath.Join(dbPath, config.WALDirName)
+	err = os.MkdirAll(walDir, 0o750)
+	tst.RequireNoError(t, err)
+
+	_, err = waldb_db.Open(dbPath, logger.NoOpLogger{})
+	tst.AssertNotNil(t, err, "expected error when lock file is missing")
+	tst.AssertTrue(t, errors.Is(err, waldb_db.ErrInvalidDir),
+		"expected ErrInvalidDir when lock file is absent")
 }

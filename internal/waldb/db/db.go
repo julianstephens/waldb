@@ -11,7 +11,7 @@ import (
 	"github.com/julianstephens/go-utils/helpers"
 
 	"github.com/julianstephens/waldb/internal/logger"
-	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/config"
 	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
@@ -23,7 +23,7 @@ import (
 // DB represents a WAL-based database instance.
 type DB struct {
 	dir         string
-	lock        *flock.Flock
+	fileLock    *flock.Flock
 	wal         *wl.Log
 	txnw        *txn.Writer
 	memtable    *memtable.Table
@@ -72,7 +72,7 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 		writeMu:     &sync.Mutex{},
 	}
 
-	if err = db.acquireLock(); err != nil {
+	if err = db.acquireFileLock(); err != nil {
 		return nil, err
 	}
 
@@ -108,7 +108,7 @@ func (db *DB) Close() error {
 		}
 	}
 
-	if err := db.releaseLock(); err != nil && closeErr == nil {
+	if err := db.releaseFileLock(); err != nil && closeErr == nil {
 		closeErr = err
 	}
 
@@ -298,7 +298,7 @@ func (db *DB) checkOpen() error {
 
 // initialize sets up the WAL log, memtable, and replays existing transactions to restore the database state.
 func (db *DB) initialize() error {
-	logDir := filepath.Join(db.dir, waldb.WALDirName)
+	logDir := filepath.Join(db.dir, config.WALDirName)
 	log, err := wl.OpenLog(logDir, wl.LogOpts{SegmentMaxBytes: int64(db.manifest.WalSegmentMaxBytes)}, db.logger)
 	if err != nil {
 		db.logger.Error("failed to open WAL log", err, "dir", logDir)
@@ -325,7 +325,7 @@ func (db *DB) initialize() error {
 	allocator, err := txn.NewCounterAllocator(res.NextTxnId)
 	if err != nil {
 		db.logger.Error("failed to create transaction allocator", err, "dir", db.dir, "next_txn_id", res.NextTxnId)
-		return wrapDBErr("init", ErrInitFailed, db.dir, err)
+		return wrapDBErr("init", ErrOpenFailed, db.dir, err)
 	}
 
 	db.txnw = txn.NewWriter(allocator, db.wal, txn.WriterOpts{FsyncOnCommit: db.manifest.FsyncOnCommit}, db.logger)
@@ -343,7 +343,7 @@ func validateDBDir(dir string) error {
 		return wrapDBErr("open", ErrInvalidDir, dir, err)
 	}
 
-	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
+	manifestPath := filepath.Join(dir, config.ManifestFileName)
 	info, err := validatePath(manifestPath, false)
 	if err != nil {
 		return wrapDBErr("open", ErrManifestMissing, dir, err)
@@ -357,7 +357,7 @@ func validateDBDir(dir string) error {
 		)
 	}
 
-	lockPath := filepath.Join(dir, waldb.LockFileName)
+	lockPath := filepath.Join(dir, config.LockFileName)
 	info, err = validatePath(lockPath, false)
 	if err != nil {
 		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("lock file invalid: %w", err))
@@ -366,7 +366,7 @@ func validateDBDir(dir string) error {
 		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("lock file is not a regular file: %s", lockPath))
 	}
 
-	walDir := filepath.Join(dir, waldb.WALDirName)
+	walDir := filepath.Join(dir, config.WALDirName)
 	if _, err := validatePath(walDir, true); err != nil {
 		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("WAL directory missing: %w", err))
 	}
@@ -394,9 +394,9 @@ func validatePath(path string, isDir bool) (info fs.FileInfo, err error) {
 	return
 }
 
-// acquireLock attempts to acquire a file lock on the database directory to prevent concurrent access.
-func (db *DB) acquireLock() error {
-	lockPath := filepath.Join(db.dir, waldb.LockFileName)
+// acquireFileLock attempts to acquire a file lock on the database directory to prevent concurrent access.
+func (db *DB) acquireFileLock() error {
+	lockPath := filepath.Join(db.dir, config.LockFileName)
 	fileLock := flock.New(lockPath)
 
 	locked, err := fileLock.TryLock()
@@ -409,19 +409,19 @@ func (db *DB) acquireLock() error {
 		return wrapDBErr("open", ErrLocked, db.dir, errors.New("database is locked"))
 	}
 
-	db.lock = fileLock
+	db.fileLock = fileLock
 
 	db.logger.Info("acquired database lock", "lock_path", lockPath)
 	return nil
 }
 
-// releaseLock releases the file lock on the database directory.
-func (db *DB) releaseLock() error {
-	if db.lock == nil {
+// releaseFileLock releases the file lock on the database directory.
+func (db *DB) releaseFileLock() error {
+	if db.fileLock == nil {
 		return nil
 	}
 
-	if err := db.lock.Unlock(); err != nil {
+	if err := db.fileLock.Unlock(); err != nil {
 		db.logger.Error("failed to release database lock", err, "dir", db.dir)
 		return wrapDBErr("close", ErrCloseFailed, db.dir, err)
 	}
@@ -442,8 +442,8 @@ func (db *DB) cleanupOnError(err error) error {
 		}
 	}
 
-	if db.lock != nil {
-		if err := db.releaseLock(); err != nil {
+	if db.fileLock != nil {
+		if err := db.releaseFileLock(); err != nil {
 			lg.Error("failed to release lock during cleanup", err, "dir", db.dir)
 		}
 	}

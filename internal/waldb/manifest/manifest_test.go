@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/config"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
 )
 
@@ -85,7 +85,7 @@ func TestSave_AtomicWrite(t *testing.T) {
 	}
 
 	// Read the saved manifest file directly
-	data, err := os.ReadFile(filepath.Join(tmpDir, waldb.ManifestFileName)) //nolint:gosec
+	data, err := os.ReadFile(filepath.Join(tmpDir, config.ManifestFileName)) //nolint:gosec
 	if err != nil {
 		t.Fatalf("failed to read manifest file: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestOpen_InvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Write invalid JSON with secure permissions
-	manifestPath := filepath.Join(tmpDir, waldb.ManifestFileName)
+	manifestPath := filepath.Join(tmpDir, config.ManifestFileName)
 	if err := os.WriteFile(manifestPath, []byte("{invalid json}"), 0o600); err != nil {
 		t.Fatalf("failed to write invalid manifest: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestOpen_UnsupportedVersion(t *testing.T) {
 		`{"format_version":%d,"fsync_on_commit":true,"max_key_bytes":4096,"max_value_bytes":4194304,"wal_segment_max_bytes":268435456}`,
 		futureVersion,
 	)
-	manifestPath := filepath.Join(tmpDir, waldb.ManifestFileName)
+	manifestPath := filepath.Join(tmpDir, config.ManifestFileName)
 	if err := os.WriteFile(manifestPath, []byte(manifestData), 0o600); err != nil {
 		t.Fatalf("failed to write manifest: %v", err)
 	}
