@@ -155,7 +155,8 @@ func (db *DB) Commit(b *txn.Batch) (uint64, error) {
 }
 
 func (db *DB) commitLocked(b *txn.Batch) (uint64, error) {
-	for _, op := range b.Ops() {
+	ops := b.Ops()
+	for _, op := range ops {
 		if err := db.validateKey(op.Key); err != nil {
 			db.logger.Error("invalid key in batch operation", err, "key_size", len(op.Key))
 			return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.dir, err)
@@ -170,19 +171,19 @@ func (db *DB) commitLocked(b *txn.Batch) (uint64, error) {
 
 	txnId, err := db.txnw.Commit(b)
 	if err != nil {
-		db.logger.Error("commit failed", err, "dir", db.dir, "count", len(b.Ops()))
+		db.logger.Error("commit failed", err, "dir", db.dir, "count", len(ops))
 		if errors.Is(err, txn.ErrCommitInvalidBatch) {
 			return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.dir, err)
 		}
 		return 0, wrapDBErr("commit", ErrCommitFailed, db.dir, err)
 	}
 
-	if err := db.memtable.Apply(b.Ops()); err != nil {
+	if err := db.memtable.Apply(ops); err != nil {
 		db.logger.Error("failed to apply batch to memtable", err, "dir", db.dir, "txn", txnId)
 		return txnId, wrapDBErr("commit", ErrCommitFailed, db.dir, err)
 	}
 
-	db.logger.Info("commit successful", "txn", txnId, "count", len(b.Ops()))
+	db.logger.Info("commit successful", "txn", txnId, "count", len(ops))
 	return txnId, nil
 }
 
@@ -475,13 +476,6 @@ func (db *DB) validateKey(key []byte) error {
 }
 
 func (db *DB) validateValue(value []byte) error {
-	if value == nil {
-		return &DBError{
-			Err:   ErrInvalidValue,
-			Cause: errors.New("value is nil"),
-			Path:  db.dir,
-		}
-	}
 	if len(value) > db.manifest.MaxValueBytes {
 		return &DBError{
 			Err:   ErrValueTooLarge,

@@ -289,6 +289,24 @@ func TestEndToEndDBFlow_PutGet(t *testing.T) {
 	tst.AssertEqual(t, string(value), string([]byte("testvalue")), "expected retrieved value to match")
 }
 
+func TestPutNilValueAllowed(t *testing.T) {
+	dbPath := t.TempDir()
+	setupTestDB(t, dbPath)
+
+	db, err := waldb_db.Open(dbPath, logger.NoOpLogger{})
+	tst.RequireNoError(t, err)
+	defer func() {
+		_ = db.Close()
+	}()
+
+	err = db.Put([]byte("key"), nil)
+	tst.RequireNoError(t, err)
+
+	value, err := db.Get([]byte("key"))
+	tst.RequireNoError(t, err)
+	tst.AssertEqual(t, 0, len(value), "expected empty value for nil put")
+}
+
 // AC1: End-to-end DB flow with Delete
 func TestEndToEndDBFlow_DeleteGet(t *testing.T) {
 	dbPath := t.TempDir()
