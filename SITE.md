@@ -13,7 +13,7 @@ WalDB is a key-value store built on top of a write-ahead log (WAL). The repo pro
 
 ## Architecture
 
-See the [design document](DESIGN.md) for an in-depth overview of the architecture and design decisions behind WalDB. The codebase is organized into several packages:
+See the [design document](https://github.com/julianstephens/waldb/blob/main/docs/DESIGN.md) for an in-depth overview of the architecture and design decisions behind WalDB. The codebase is organized into several packages:
 
 - `internal/waldb`: Provides top-level DB initialization function.
 - `internal/waldb/db`: Database management and operations.
@@ -24,7 +24,7 @@ See the [design document](DESIGN.md) for an in-depth overview of the architectur
 - `internal/waldb/memtable`: In-memory data structure for storing key-value pairs before flushing to disk.
 - `internal/cli`: Command-line interface for interacting with WalDB.
 
-```
+```mermaid
 graph TD
     subgraph CLI["cmd/waldb — CLI"]
         CMD["commands\n(init, put, get, delete, doctor)"]
