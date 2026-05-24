@@ -58,8 +58,7 @@ func (t *Table) Put(key, value []byte) error {
 	defer t.mu.Unlock()
 
 	k := string(key)
-	v := make([]byte, len(value))
-	copy(v, value)
+	v := bytes.Clone(value)
 
 	t.m[k] = Entry{Value: v, Tombstone: false}
 	return nil
@@ -89,8 +88,7 @@ func (t *Table) Apply(ops []kv.Op) error {
 		}
 		switch op.Kind {
 		case kv.OpPut:
-			v := make([]byte, len(op.Value))
-			copy(v, op.Value)
+			v := bytes.Clone(op.Value)
 			t.m[string(op.Key)] = Entry{Value: v, Tombstone: false}
 		case kv.OpDelete:
 			t.m[string(op.Key)] = Entry{Value: nil, Tombstone: true}
@@ -109,8 +107,7 @@ func (t *Table) Snapshot() map[string]Entry {
 	out := make(map[string]Entry, len(t.m))
 	for k, e := range t.m {
 		// Copy value to avoid sharing memory.
-		v := make([]byte, len(e.Value))
-		copy(v, e.Value)
+		v := bytes.Clone(e.Value)
 		out[k] = Entry{Value: v, Tombstone: e.Tombstone}
 	}
 	return out

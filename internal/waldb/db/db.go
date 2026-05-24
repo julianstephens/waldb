@@ -22,15 +22,16 @@ import (
 
 // DB represents a WAL-based database instance.
 type DB struct {
-	dir      string
-	lock     *flock.Flock
-	wal      *wl.Log
-	txnw     *txn.Writer
-	memtable *memtable.Table
-	manifest *manifest.Manifest
-	mu       *sync.RWMutex
-	logger   logger.Logger
-	closed   bool
+	dir         string
+	lock        *flock.Flock
+	wal         *wl.Log
+	txnw        *txn.Writer
+	memtable    *memtable.Table
+	manifest    *manifest.Manifest
+	lifecycleMu *sync.RWMutex // protects closed and Close() lifecycle
+	writeMu     *sync.Mutex   // protects commit operations to ensure serializability
+	logger      logger.Logger
+	closed      bool
 }
 
 // Open opens an existing WAL database at the given directory path.
@@ -63,11 +64,12 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 	lg.Info("opening database", "dir", dir, "fsync_on_commit", mf.FsyncOnCommit)
 
 	db := &DB{
-		dir:      dir,
-		logger:   lg,
-		closed:   false,
-		manifest: mf,
-		mu:       &sync.RWMutex{},
+		dir:         dir,
+		logger:      lg,
+		closed:      false,
+		manifest:    mf,
+		lifecycleMu: &sync.RWMutex{},
+		writeMu:     &sync.Mutex{},
 	}
 
 	if err = db.acquireLock(); err != nil {
@@ -85,12 +87,16 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 
 // Close closes the database. If the database is already closed, it does nothing and returns nil.
 func (db *DB) Close() error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-
+	db.lifecycleMu.Lock()
 	if db.closed {
+		db.lifecycleMu.Unlock()
 		return nil
 	}
+	db.closed = true
+	db.lifecycleMu.Unlock()
+
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
 
 	db.logger.Info("closing database", "dir", db.dir)
 	var closeErr error
@@ -118,8 +124,8 @@ func (db *DB) Path() string {
 
 // IsClosed returns true if the database is closed.
 func (db *DB) IsClosed() bool {
-	db.mu.RLock()
-	defer db.mu.RUnlock()
+	db.lifecycleMu.RLock()
+	defer db.lifecycleMu.RUnlock()
 
 	return db.closed
 }
@@ -128,11 +134,15 @@ func (db *DB) IsClosed() bool {
 // It writes the transaction to the WAL and updates the in-memory state.
 // Returns the transaction ID or an error.
 func (db *DB) Commit(b *txn.Batch) (uint64, error) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
+	if err := db.checkOpen(); err != nil {
+		return 0, err
+	}
 
-	if db.closed {
-		return 0, wrapDBErr("commit", ErrClosed, db.dir, nil)
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	if err := db.checkOpen(); err != nil {
+		return 0, err
 	}
 
 	if b == nil {
@@ -180,11 +190,8 @@ func (db *DB) commitLocked(b *txn.Batch) (uint64, error) {
 // Get retrieves the value associated with the given key.
 // If the key does not exist, it returns "not found".
 func (db *DB) Get(key []byte) ([]byte, error) {
-	db.mu.RLock()
-	defer db.mu.RUnlock()
-
-	if db.closed {
-		return nil, wrapDBErr("get", ErrClosed, db.dir, nil)
+	if err := db.checkOpen(); err != nil {
+		return nil, err
 	}
 
 	if err := db.validateKey(key); err != nil {
@@ -206,11 +213,15 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 // Put sets the value for the given key in the database.
 // It validates the key and value sizes before committing the operation.
 func (db *DB) Put(key, value []byte) error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
+	if err := db.checkOpen(); err != nil {
+		return err
+	}
 
-	if db.closed {
-		return wrapDBErr("put", ErrClosed, db.dir, nil)
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
+
+	if err := db.checkOpen(); err != nil {
+		return err
 	}
 
 	if err := db.validateKey(key); err != nil {
@@ -245,11 +256,14 @@ func (db *DB) Put(key, value []byte) error {
 // Delete returns ErrClosed if the database has been closed, and may return
 // validation errors such as ErrInvalidKey from key validation.
 func (db *DB) Delete(key []byte) error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
+	if err := db.checkOpen(); err != nil {
+		return err
+	}
+	db.writeMu.Lock()
+	defer db.writeMu.Unlock()
 
-	if db.closed {
-		return wrapDBErr("delete", ErrClosed, db.dir, nil)
+	if err := db.checkOpen(); err != nil {
+		return err
 	}
 
 	if err := db.validateKey(key); err != nil {
@@ -268,6 +282,17 @@ func (db *DB) Delete(key []byte) error {
 	}
 
 	db.logger.Debug("delete operation", "key_size", len(key))
+	return nil
+}
+
+// checkOpen returns an error if the database is closed, otherwise it returns nil.
+func (db *DB) checkOpen() error {
+	db.lifecycleMu.RLock()
+	defer db.lifecycleMu.RUnlock()
+
+	if db.closed {
+		return wrapDBErr("closed", ErrClosed, db.dir, nil)
+	}
 	return nil
 }
 
