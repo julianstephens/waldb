@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"sync"
 
@@ -44,8 +43,17 @@ func Init(dir string, lg logger.Logger) error {
 		lg = &logger.NoOpLogger{}
 	}
 
-	if exists := helpers.Exists(dir); exists {
-		lg.Debug("initializing database in existing directory", "dir", dir)
+	exists, info, err := helpers.ExistsWithInfo(dir)
+	if err != nil {
+		lg.Error("failed to check if directory exists", err, "dir", dir)
+		return wrapDBErr("init", ErrInitFailed, dir, err)
+	}
+	if exists {
+		if !info.IsDir() {
+			lg.Error("provided path is not a directory", nil, "dir", dir)
+			return wrapDBErr("init", ErrInvalidDir, dir, fmt.Errorf("path exists but is not a directory: %s", dir))
+		}
+
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			lg.Error("failed to read existing directory", err, "dir", dir)
@@ -59,19 +67,19 @@ func Init(dir string, lg logger.Logger) error {
 
 	lg.Info("initializing new database", "dir", dir)
 
-	lg.Debug("creating database directory structure", "dir", dir)
+	lg.Debug("ensuring database directory structure", "dir", dir)
 	if err := helpers.Ensure(dir, true); err != nil {
 		lg.Error("failed to ensure database directory", err, "dir", dir)
 		return wrapDBErr("init", ErrInitFailed, dir, err)
 	}
 	lg.Debug("creating WAL directory", "dir", dir)
-	if err := helpers.Ensure(path.Join(dir, waldb.WALDirName), true); err != nil {
+	if err := helpers.Ensure(filepath.Join(dir, waldb.WALDirName), true); err != nil {
 		lg.Error("failed to create WAL directory", err, "dir", dir)
 		return wrapDBErr("init", ErrInitFailed, dir, err)
 	}
 
 	lg.Debug("creating lock file", "dir", dir)
-	if err := helpers.Ensure(path.Join(dir, waldb.LockFileName), false); err != nil {
+	if err := helpers.Ensure(filepath.Join(dir, waldb.LockFileName), false); err != nil {
 		lg.Error("failed to create lock file", err, "dir", dir)
 		return wrapDBErr("init", ErrInitFailed, dir, err)
 	}

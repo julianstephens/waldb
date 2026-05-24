@@ -816,6 +816,19 @@ func TestInit_FreshDir_ThenOpen(t *testing.T) {
 	tst.AssertFalse(t, db.IsClosed(), "expected database to be open after Init+Open")
 }
 
+// AC1: Init returns ErrInvalidDir when the given path exists but is a file, not a directory.
+func TestInit_PathIsFile_ReturnsErrInvalidDir(t *testing.T) {
+	// Create a regular file at the target path.
+	f, err := os.CreateTemp(t.TempDir(), "not-a-dir-*")
+	tst.RequireNoError(t, err)
+	filePath := f.Name()
+	tst.RequireNoError(t, f.Close())
+
+	err = waldb_db.Init(filePath, logger.NoOpLogger{})
+	tst.AssertNotNil(t, err, "expected error when db path is a file")
+	tst.AssertTrue(t, errors.Is(err, waldb_db.ErrInvalidDir), "expected ErrInvalidDir when path is a file")
+}
+
 // AC1: Init on a fresh directory creates the expected layout.
 func TestInit_FreshDir_CreatesLayout(t *testing.T) {
 	dbPath := t.TempDir() + "/layoutdb"
