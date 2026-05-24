@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/alecthomas/kong"
 	"github.com/julianstephens/go-utils/cliutil"
@@ -12,15 +12,18 @@ import (
 	"github.com/julianstephens/waldb/internal/cli"
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb/config"
+	"github.com/julianstephens/waldb/internal/waldb/manifest"
 )
 
 type LogOpts struct {
-	Level  string `help:"Logging level (debug, info, warn, error)" default:"info" envvar:"WALDB_LOG_LEVEL"`
-	Debug  bool   `help:"Enable debug logging (overrides --level)"                envvar:"WALDB_DEBUG"`
-	Stream bool   `help:"Log to stdout/stderr in addition to file"                envvar:"WALDB_LOG_STREAM"`
+	Level       string `help:"Logging level (debug, info, warn, error)"           default:"warn" envvar:"WALDB_LOG_LEVEL"`
+	Debug       bool   `help:"Enable debug logging (overrides --level)"                          envvar:"WALDB_DEBUG"`
+	ConsoleOnly bool   `help:"Log only to console, not to file"                                  envvar:"WALDB_CONSOLE_ONLY"`
+	Quiet       bool   `help:"Disable console logging (file logger still active)"                envvar:"WALDB_QUIET"`
 }
-
 type CLI struct {
+	cli.Globals
+
 	Init     cli.InitCmd     `cmd:"" help:"Initialize a new WAL database"`
 	Get      cli.GetCmd      `cmd:"" help:"Get a value by key"`
 	Put      cli.PutCmd      `cmd:"" help:"Put a key-value pair"`
@@ -30,6 +33,7 @@ type CLI struct {
 	Stats    cli.StatsCmd    `cmd:"" help:"Display database statistics"`
 	Doctor   cli.DoctorCmd   `cmd:"" help:"Check database health and integrity"`
 	Repair   cli.RepairCmd   `cmd:"" help:"Repair a corrupted database"`
+	Manifest cli.ManifestCmd `cmd:"" help:"Display manifest information"`
 
 	// Internal logger, not exposed as CLI flag
 	Logger logger.Logger `kong:"-"`
@@ -48,7 +52,7 @@ func (v VersionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
 	return nil
 }
 
-func createLogger(opts LogOpts) (logger.Logger, error) {
+func createLogger(opts LogOpts, m *manifest.Manifest) (logger.Logger, error) {
 	var level string
 	if opts.Debug {
 		level = "debug"
@@ -57,24 +61,35 @@ func createLogger(opts LogOpts) (logger.Logger, error) {
 	}
 
 	consoleLogger := logger.NewConsoleLogger(level)
-
-	if opts.Stream {
+	if opts.ConsoleOnly {
 		return consoleLogger, nil
 	}
 
-	// FIXME: should use manifest values
-	wd, err := os.Getwd()
+	var logDir, logFileName string
+	var logMaxSize, logMaxBackups int
+	if m != nil {
+		logDir = m.LogDirOrDefault()
+		logFileName = m.LogFileNameOrDefault()
+		logMaxSize = m.LogMaxSizeOrDefault()
+		logMaxBackups = m.LogMaxBackupsOrDefault()
+	} else {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		logDir = filepath.Join(wd, config.DefaultLogDir)
+		logFileName = config.DefaultLogFileName
+		logMaxSize = config.DefaultLogMaxSize
+		logMaxBackups = config.DefaultLogMaxBackups
+	}
+
+	fileLogger, err := logger.NewFileLogger(logDir, logFileName, logMaxSize, logMaxBackups)
 	if err != nil {
 		return nil, err
 	}
-	fileLogger, err := logger.NewFileLogger(
-		path.Join(wd, config.DefaultLogDir),
-		config.DefaultLogFileName,
-		config.DefaultLogMaxSize,
-		config.DefaultLogMaxBackups,
-	)
-	if err != nil {
-		return nil, err
+
+	if opts.Quiet {
+		return fileLogger, nil
 	}
 
 	multiLogger := logger.NewMultiLogger(fileLogger, consoleLogger)
@@ -83,7 +98,8 @@ func createLogger(opts LogOpts) (logger.Logger, error) {
 
 func main() {
 	cliApp := &CLI{
-		Logger: logger.NoOpLogger{}, // Default to no-op logger
+		Globals: cli.Globals{},
+		Logger:  logger.NoOpLogger{}, // Default to no-op logger
 	}
 	ctx := kong.Parse(cliApp,
 		kong.Name("waldb"),
@@ -97,12 +113,17 @@ func main() {
 		},
 	)
 
-	// Create logger from CLI options
-	lg, err := createLogger(cliApp.LogOpts)
+	// Create logger from CLI options.
+	// If --db points to an existing DB, read log config from its manifest so
+	// the file logger uses the paths recorded at init time. Fall back to
+	// defaults when the manifest is absent (e.g. before init runs).
+	m, _ := manifest.Open(cliApp.Globals.DB)
+	lg, err := createLogger(cliApp.LogOpts, m)
 	if err != nil {
 		ctx.FatalIfErrorf(err)
 	}
-	cliApp.Logger = lg
+	ctx.Bind(lg)
+	ctx.BindTo(lg, (*logger.Logger)(nil))
 
 	// Ensure logger is properly closed
 	defer func() {
@@ -111,11 +132,13 @@ func main() {
 		}
 	}()
 
-	err = ctx.Run()
+	err = ctx.Run(cliApp.Globals)
 	if err != nil {
 		if errors.Is(err, cli.ErrNotImplemented) {
+			cliutil.PrintError("Error: Command not yet implemented")
 			os.Exit(2)
 		}
-		ctx.FatalIfErrorf(err)
+		cliutil.PrintError(fmt.Sprintf("Error: %v", err))
+		os.Exit(1)
 	}
 }
