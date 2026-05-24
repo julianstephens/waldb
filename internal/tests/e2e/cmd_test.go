@@ -24,12 +24,12 @@ type cmdResult struct {
 }
 
 // runWaldb executes the waldb binary with the given args and returns the
-// combined output and exit code. WALDB_LOG_STREAM=true is always injected so
+// combined output and exit code. WALDB_CONSOLE_ONLY=true is always injected so
 // the binary writes logs to stderr instead of creating log files on disk.
 func runWaldb(t *testing.T, args ...string) cmdResult {
 	t.Helper()
 	cmd := exec.Command(waldbBin, args...) //nolint:gosec // G204: waldbBin is a test binary path built by TestMain
-	cmd.Env = append(os.Environ(), "WALDB_LOG_STREAM=true")
+	cmd.Env = append(os.Environ(), "WALDB_CONSOLE_ONLY=true")
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

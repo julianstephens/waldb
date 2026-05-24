@@ -214,7 +214,7 @@ func printJson(data any, pretty bool) error {
 }
 
 func closeDB(db *db.DB, errp *error) {
-	if closeErr := db.Close(); closeErr != nil {
+	if closeErr := db.Close(); closeErr != nil && *errp == nil {
 		*errp = closeErr
 	}
 }

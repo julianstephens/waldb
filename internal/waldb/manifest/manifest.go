@@ -199,12 +199,27 @@ func (m *Manifest) ToMap() map[string]any {
 		"max_key_bytes":         m.MaxKeyBytes,
 		"max_value_bytes":       m.MaxValueBytes,
 		"wal_segment_max_bytes": m.WalSegmentMaxBytes,
-		"wal_next_segment_id":   m.WalNextSegmentID,
-		"wal_log_max_bytes":     m.WalLogMaxBytes,
-		"wal_log_max_backups":   m.WalLogMaxBackups,
-		"log_dir":               m.LogDirOrDefault(),
-		"log_file_name":         m.LogFileNameOrDefault(),
-		"log_max_size":          m.LogMaxSizeOrDefault(),
-		"log_max_backups":       m.LogMaxBackupsOrDefault(),
+		"wal_next_segment_id": func() any {
+			if m.WalNextSegmentID != nil {
+				return *m.WalNextSegmentID
+			}
+			return nil
+		}(),
+		"wal_log_max_bytes": func() any {
+			if m.WalLogMaxBytes != nil {
+				return *m.WalLogMaxBytes
+			}
+			return nil
+		}(),
+		"wal_log_max_backups": func() any {
+			if m.WalLogMaxBackups != nil {
+				return *m.WalLogMaxBackups
+			}
+			return nil
+		}(),
+		"log_dir":         m.LogDirOrDefault(),
+		"log_file_name":   m.LogFileNameOrDefault(),
+		"log_max_size":    m.LogMaxSizeOrDefault(),
+		"log_max_backups": m.LogMaxBackupsOrDefault(),
 	}
 }
