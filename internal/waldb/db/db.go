@@ -112,7 +112,6 @@ func (db *DB) Close() error {
 		closeErr = err
 	}
 
-	db.closed = true
 	db.logger.Info("database closed", "dir", db.dir)
 	return closeErr
 }
