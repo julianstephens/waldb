@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 
 	"github.com/julianstephens/go-utils/cliutil"
 	"github.com/julianstephens/go-utils/generic"
@@ -35,7 +36,7 @@ func (c *InitCmd) Run(globals Globals, lg logger.Logger) error {
 
 type OutputOptions struct {
 	Json   bool `help:"Output in JSON format" default:"false"`
-	Pretty bool `help:"Pretty-print output"   default:"false"`
+	Pretty bool `help:"Pretty-print output"   default:"false" env:"WALDB_PRETTY_PRINT"`
 }
 
 // GetCmd retrieves a value by key.
@@ -44,19 +45,19 @@ type GetCmd struct {
 	OutputOptions
 }
 
-func (c *GetCmd) Run(globals Globals, lg logger.Logger) error {
-	db, err := db.Open(globals.DB, lg)
+func (c *GetCmd) Run(globals Globals, lg logger.Logger) (err error) {
+	d, err := db.Open(globals.DB, lg)
 	if err != nil {
-		return err
+		return
 	}
-	defer closeDB(db, &err)
+	defer closeDB(d, &err)
 
-	val, err := db.Get([]byte(c.Key))
+	val, err := d.Get([]byte(c.Key))
 	if err != nil {
-		return err
+		return
 	}
 	printDBEntry(c.Key, string(val), c.Json, c.Pretty)
-	return nil
+	return
 }
 
 // PutCmd stores a key-value pair.
@@ -66,18 +67,18 @@ type PutCmd struct {
 	OutputOptions
 }
 
-func (c *PutCmd) Run(globals Globals, lg logger.Logger) error {
-	db, err := db.Open(globals.DB, lg)
+func (c *PutCmd) Run(globals Globals, lg logger.Logger) (err error) {
+	d, err := db.Open(globals.DB, lg)
 	if err != nil {
-		return err
+		return
 	}
-	defer closeDB(db, &err)
+	defer closeDB(d, &err)
 
-	if err := db.Put([]byte(c.Key), []byte(c.Value)); err != nil {
-		return err
+	if err = d.Put([]byte(c.Key), []byte(c.Value)); err != nil {
+		return
 	}
 	printDBEntry(c.Key, c.Value, c.Json, c.Pretty)
-	return nil
+	return
 }
 
 // DelCmd deletes a key.
@@ -86,18 +87,18 @@ type DelCmd struct {
 	OutputOptions
 }
 
-func (c *DelCmd) Run(globals Globals, lg logger.Logger) error {
-	db, err := db.Open(globals.DB, lg)
+func (c *DelCmd) Run(globals Globals, lg logger.Logger) (err error) {
+	d, err := db.Open(globals.DB, lg)
 	if err != nil {
-		return err
+		return
 	}
-	defer closeDB(db, &err)
+	defer closeDB(d, &err)
 
-	if err := db.Delete([]byte(c.Key)); err != nil {
-		return err
+	if err = d.Delete([]byte(c.Key)); err != nil {
+		return
 	}
 	printDBEntry(c.Key, "<deleted>", c.Json, c.Pretty)
-	return nil
+	return
 }
 
 // BatchCmd executes multiple operations in a batch.
@@ -158,13 +159,16 @@ func (c *ManifestCmd) Run(globals Globals, lg logger.Logger) error {
 			cliutil.PrintColored("Database Manifest:", cliutil.ColorCyan)
 			cliutil.PrintColored("-------------------", cliutil.ColorCyan)
 			defer cliutil.PrintColored("-------------------", cliutil.ColorCyan)
-			i := 0
-			for key, value := range m.ToMap() {
+			manifestMap := m.ToMap()
+			manifestMapKeys := generic.Keys(manifestMap)
+			sort.Strings(manifestMapKeys)
+
+			for i, key := range manifestMapKeys {
+				value := manifestMap[key]
 				cliutil.PrintColored(
 					fmt.Sprintf("%s: %v", key, value),
 					generic.If(i%2 == 0, cliutil.ColorYellow, cliutil.ColorGreen),
 				)
-				i++
 			}
 		} else {
 			for key, value := range m.ToMap() {
