@@ -8,10 +8,10 @@ import (
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
+
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb"
 	waldb_db "github.com/julianstephens/waldb/internal/waldb/db"
-	_ "github.com/julianstephens/waldb/internal/waldb/manifest" // register manifest initializer
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 )
 

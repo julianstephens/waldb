@@ -22,9 +22,6 @@ var (
 // Init initializes a new WAL database at the given directory path.
 // It creates the necessary directory structure and manifest file.
 // If the directory already exists and is not empty, it returns an error.
-//
-// The caller must import waldb/manifest (directly or transitively) to ensure
-// the manifest initializer is registered before calling Init.
 func Init(dir string, lg logger.Logger) error {
 	if lg == nil {
 		lg = &logger.NoOpLogger{}
@@ -74,22 +71,23 @@ func Init(dir string, lg logger.Logger) error {
 	created = append(created, config.WALDirName)
 
 	lg.Debug("creating lock file", "dir", dir)
-	if file, err := os.Create(filepath.Join(dir, config.LockFileName)); err != nil { // nolint:gosec
+	file, err := os.Create(filepath.Join(dir, config.LockFileName)) // nolint: gosec
+	if err != nil {
 		lg.Error("failed to create lock file", err, "dir", dir)
 		lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
 		cleanup()
 		lg.Debug("cleanup complete", "dir", dir)
 		return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
-	} else {
-		if err := file.Close(); err != nil {
-			lg.Error("failed to close lock file", err, "dir", dir)
-			lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
-			cleanup()
-			lg.Debug("cleanup complete", "dir", dir)
-			return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
-		}
 	}
 	created = append(created, config.LockFileName)
+
+	if err := file.Close(); err != nil {
+		lg.Error("failed to close lock file", err, "dir", dir)
+		lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
+		cleanup()
+		lg.Debug("cleanup complete", "dir", dir)
+		return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
+	}
 
 	lg.Debug("initializing manifest", "dir", dir)
 	if _, err := manifest.Init(dir); err != nil {
