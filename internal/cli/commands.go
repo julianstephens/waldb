@@ -18,17 +18,15 @@ import (
 var ErrNotImplemented = errors.New("not yet implemented")
 
 type Globals struct {
-	DB string `help:"Path to the database" env:"WALDB_DB_PATH" short:"d"`
+	DB string `help:"Path to the database" env:"WALDB_DB_PATH" short:"d" required:""`
 }
 
 // InitCmd initializes a new WAL database.
-type InitCmd struct {
-	Force bool `help:"Create a new database even if one already exists at the path" default:"false"`
-}
+type InitCmd struct{}
 
 func (c *InitCmd) Run(globals Globals, lg logger.Logger) error {
 	cliutil.PrintInfo(fmt.Sprintf("Initializing database at %s", globals.DB))
-	if err := waldb.Init(globals.DB, c.Force, lg); err != nil {
+	if err := waldb.Init(globals.DB, lg); err != nil {
 		return err
 	}
 	cliutil.PrintSuccess("Database initialized successfully")
@@ -51,11 +49,7 @@ func (c *GetCmd) Run(globals Globals, lg logger.Logger) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			panic(fmt.Sprintf("Failed to close database: %v", err))
-		}
-	}()
+	defer closeDB(db, &err)
 
 	val, err := db.Get([]byte(c.Key))
 	if err != nil {
@@ -77,11 +71,7 @@ func (c *PutCmd) Run(globals Globals, lg logger.Logger) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			panic(fmt.Sprintf("Failed to close database: %v", err))
-		}
-	}()
+	defer closeDB(db, &err)
 
 	if err := db.Put([]byte(c.Key), []byte(c.Value)); err != nil {
 		return err
@@ -101,11 +91,7 @@ func (c *DelCmd) Run(globals Globals, lg logger.Logger) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			panic(fmt.Sprintf("Failed to close database: %v", err))
-		}
-	}()
+	defer closeDB(db, &err)
 
 	if err := db.Delete([]byte(c.Key)); err != nil {
 		return err
@@ -157,23 +143,23 @@ type ManifestCmd struct {
 }
 
 func (c *ManifestCmd) Run(globals Globals, lg logger.Logger) error {
-	manifest, err := manifest.Open(globals.DB)
+	m, err := manifest.Open(globals.DB)
 	if err != nil {
 		return err
 	}
-	if manifest == nil {
+	if m == nil {
 		return errors.New("manifest not found")
 	}
 
 	if c.Json {
-		return printJson(manifest, c.Pretty)
+		return printJson(m, c.Pretty)
 	} else {
 		if c.Pretty {
 			cliutil.PrintColored("Database Manifest:", cliutil.ColorCyan)
 			cliutil.PrintColored("-------------------", cliutil.ColorCyan)
 			defer cliutil.PrintColored("-------------------", cliutil.ColorCyan)
 			i := 0
-			for key, value := range manifest.ToMap() {
+			for key, value := range m.ToMap() {
 				cliutil.PrintColored(
 					fmt.Sprintf("%s: %v", key, value),
 					generic.If(i%2 == 0, cliutil.ColorYellow, cliutil.ColorGreen),
@@ -181,7 +167,7 @@ func (c *ManifestCmd) Run(globals Globals, lg logger.Logger) error {
 				i++
 			}
 		} else {
-			for key, value := range manifest.ToMap() {
+			for key, value := range m.ToMap() {
 				fmt.Printf("%s: %v\n", key, value)
 			}
 		}
@@ -215,14 +201,20 @@ func printJson(data any, pretty bool) error {
 			fmt.Printf("Error formatting JSON: %v\n", err)
 			return err
 		}
-		cliutil.PrintColored(string(b), cliutil.ColorGreen)
+		fmt.Println(string(b))
 	} else {
 		b, err := json.Marshal(data)
 		if err != nil {
 			fmt.Printf("Error formatting JSON: %v\n", err)
 			return err
 		}
-		cliutil.PrintColored(string(b), cliutil.ColorGreen)
+		fmt.Println(string(b))
 	}
 	return nil
+}
+
+func closeDB(db *db.DB, errp *error) {
+	if closeErr := db.Close(); closeErr != nil {
+		*errp = closeErr
+	}
 }

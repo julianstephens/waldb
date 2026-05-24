@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/alecthomas/kong"
 	"github.com/julianstephens/go-utils/cliutil"
@@ -59,9 +59,6 @@ func createLogger(opts LogOpts, m *manifest.Manifest) (logger.Logger, error) {
 	} else {
 		level = opts.Level
 	}
-	if opts.Quiet {
-		level = "error" // Only log errors to console when quiet mode is enabled
-	}
 
 	consoleLogger := logger.NewConsoleLogger(level)
 	if opts.ConsoleOnly {
@@ -80,7 +77,7 @@ func createLogger(opts LogOpts, m *manifest.Manifest) (logger.Logger, error) {
 		if err != nil {
 			return nil, err
 		}
-		logDir = path.Join(wd, config.DefaultLogDir)
+		logDir = filepath.Join(wd, config.DefaultLogDir)
 		logFileName = config.DefaultLogFileName
 		logMaxSize = config.DefaultLogMaxSize
 		logMaxBackups = config.DefaultLogMaxBackups
@@ -89,6 +86,10 @@ func createLogger(opts LogOpts, m *manifest.Manifest) (logger.Logger, error) {
 	fileLogger, err := logger.NewFileLogger(logDir, logFileName, logMaxSize, logMaxBackups)
 	if err != nil {
 		return nil, err
+	}
+
+	if opts.Quiet {
+		return fileLogger, nil
 	}
 
 	multiLogger := logger.NewMultiLogger(fileLogger, consoleLogger)

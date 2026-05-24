@@ -22,7 +22,7 @@ import (
 func TestInit_FreshDir_ThenOpen(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "freshdb")
 
-	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	db, err := waldb_db.Open(dbPath, logger.NoOpLogger{})
@@ -40,7 +40,7 @@ func TestInit_PathIsFile_ReturnsErrInvalidDir(t *testing.T) {
 	filePath := f.Name()
 	tst.RequireNoError(t, f.Close())
 
-	err = waldb.Init(filePath, false, logger.NoOpLogger{})
+	err = waldb.Init(filePath, logger.NoOpLogger{})
 	tst.AssertNotNil(t, err, "expected error when db path is a file")
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrInvalidDBDir), "expected ErrInvalidDir when path is a file")
 }
@@ -49,7 +49,7 @@ func TestInit_PathIsFile_ReturnsErrInvalidDir(t *testing.T) {
 func TestInit_FreshDir_CreatesLayout(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "layoutdb")
 
-	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// WAL directory
@@ -75,7 +75,7 @@ func TestInit_FreshDir_CreatesLayout(t *testing.T) {
 func TestInit_NilLogger(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "nilloggerdb")
 
-	err := waldb.Init(dbPath, false, nil)
+	err := waldb.Init(dbPath, nil)
 	tst.RequireNoError(t, err)
 }
 
@@ -83,7 +83,7 @@ func TestInit_NilLogger(t *testing.T) {
 func TestInit_ThenPutAndGet(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "putgetdb")
 
-	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	db, err := waldb_db.Open(dbPath, logger.NoOpLogger{})
@@ -103,11 +103,11 @@ func TestInit_AlreadyInitialized_ReturnsError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "reinitdb")
 
 	// First init must succeed.
-	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Second init on the same (non-empty) directory must fail with ErrAlreadyExists.
-	err = waldb.Init(dbPath, false, logger.NoOpLogger{})
+	err = waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.AssertNotNil(t, err, "expected error when re-initializing an existing DB")
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrAlreadyExists),
 		"expected ErrAlreadyExists when re-initializing an existing DB")
@@ -117,7 +117,7 @@ func TestInit_AlreadyInitialized_ReturnsError(t *testing.T) {
 func TestInit_AlreadyInitialized_DoesNotCorrupt(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "nocorruptdb")
 
-	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Write data to the initialized DB.
@@ -129,7 +129,7 @@ func TestInit_AlreadyInitialized_DoesNotCorrupt(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Re-init must fail (non-empty dir).
-	_ = waldb.Init(dbPath, false, logger.NoOpLogger{})
+	_ = waldb.Init(dbPath, logger.NoOpLogger{})
 
 	// Re-open and verify data is still present.
 	db2, err := waldb_db.Open(dbPath, logger.NoOpLogger{})
@@ -154,7 +154,7 @@ func TestInit_ConflictingManifestDir_EarlyRejection(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Init must fail because the directory is non-empty.
-	err = waldb.Init(dbPath, false, logger.NoOpLogger{})
+	err = waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.AssertNotNil(t, err, "expected Init to fail when manifest path is a directory")
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrAlreadyExists), "expected ErrAlreadyExists")
 

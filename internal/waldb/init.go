@@ -22,7 +22,7 @@ var (
 // Init initializes a new WAL database at the given directory path.
 // It creates the necessary directory structure and manifest file.
 // If the directory already exists and is not empty, it returns an error.
-func Init(dir string, force bool, lg logger.Logger) error {
+func Init(dir string, lg logger.Logger) error {
 	if lg == nil {
 		lg = &logger.NoOpLogger{}
 	}
@@ -44,31 +44,6 @@ func Init(dir string, force bool, lg logger.Logger) error {
 			return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
 		}
 		if len(entries) > 0 {
-			if force {
-				lg.Warn(
-					"directory is not empty, but --force is set; proceeding with initialization",
-					"dir",
-					dir,
-					"entry_count",
-					len(entries),
-				)
-				for _, entry := range entries {
-					entryPath := filepath.Join(dir, entry.Name())
-					if err := os.RemoveAll(entryPath); err != nil {
-						lg.Error(
-							"failed to remove existing entry during forced initialization",
-							err,
-							"dir",
-							dir,
-							"entry",
-							entry.Name(),
-						)
-						return fmt.Errorf("init %s: %w: failed to remove existing entry: %v", dir, ErrInitFailed, err)
-					}
-				}
-				lg.Info("existing directory contents removed successfully", "dir", dir)
-				return Init(dir, false, lg)
-			}
 			lg.Error("cannot initialize database: directory is not empty", nil, "dir", dir, "entry_count", len(entries))
 			return fmt.Errorf("init %s: %w: directory is not empty", dir, ErrAlreadyExists)
 		}
