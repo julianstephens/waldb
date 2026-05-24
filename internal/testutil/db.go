@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
-	"github.com/julianstephens/waldb/internal/waldb"
+
+	"github.com/julianstephens/waldb/internal/waldb/config"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
 )
 
@@ -20,14 +21,14 @@ func SetupTestDB(t *testing.T, dbPath string) {
 	tst.RequireNoError(t, err)
 
 	// Create LOCK file
-	lockPath := filepath.Join(dbPath, waldb.LockFileName)
+	lockPath := filepath.Join(dbPath, config.LockFileName)
 	lockFile, err := os.Create(lockPath) // nolint:gosec
 	tst.RequireNoError(t, err)
 	err = lockFile.Close()
 	tst.RequireNoError(t, err)
 
 	// Create WAL directory
-	walDir := filepath.Join(dbPath, waldb.WALDirName)
+	walDir := filepath.Join(dbPath, config.WALDirName)
 	err = os.MkdirAll(walDir, 0o750)
 	tst.RequireNoError(t, err)
 }

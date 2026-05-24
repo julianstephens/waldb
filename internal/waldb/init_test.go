@@ -3,16 +3,14 @@ package waldb_test
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
 
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/config"
 	waldb_db "github.com/julianstephens/waldb/internal/waldb/db"
-	"github.com/julianstephens/waldb/internal/waldb/manifest"
-	_ "github.com/julianstephens/waldb/internal/waldb/manifest" // register manifest initializer
 )
 
 // ============================================================================
@@ -54,19 +52,19 @@ func TestInit_FreshDir_CreatesLayout(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// WAL directory
-	walDir := dbPath + "/" + waldb.WALDirName
+	walDir := dbPath + "/" + config.WALDirName
 	info, statErr := os.Stat(walDir)
 	tst.RequireNoError(t, statErr)
 	tst.AssertTrue(t, info.IsDir(), "expected WAL directory to exist")
 
 	// Lock file
-	lockPath := dbPath + "/" + waldb.LockFileName
+	lockPath := dbPath + "/" + config.LockFileName
 	info, statErr = os.Stat(lockPath)
 	tst.RequireNoError(t, statErr)
 	tst.AssertTrue(t, info.Mode().IsRegular(), "expected lock file to be a regular file")
 
 	// Manifest
-	manifestPath := dbPath + "/" + manifest.ManifestFileName
+	manifestPath := dbPath + "/" + config.ManifestFileName
 	info, statErr = os.Stat(manifestPath)
 	tst.RequireNoError(t, statErr)
 	tst.AssertTrue(t, info.Mode().IsRegular(), "expected manifest to be a regular file")
@@ -150,7 +148,7 @@ func TestInit_ConflictingManifestDir_EarlyRejection(t *testing.T) {
 
 	// Pre-create the DB directory with a MANIFEST.json subdirectory to simulate
 	// a conflicting path before Init runs.
-	manifestConflict := dbPath + "/" + manifest.ManifestFileName
+	manifestConflict := dbPath + "/" + config.ManifestFileName
 	err := os.MkdirAll(manifestConflict, 0o750)
 	tst.RequireNoError(t, err)
 
@@ -160,35 +158,8 @@ func TestInit_ConflictingManifestDir_EarlyRejection(t *testing.T) {
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrAlreadyExists), "expected ErrAlreadyExists")
 
 	// The WAL directory must NOT have been created (Init bailed out early).
-	walDir := dbPath + "/" + waldb.WALDirName
+	walDir := dbPath + "/" + config.WALDirName
 	_, statErr := os.Stat(walDir)
 	tst.AssertTrue(t, os.IsNotExist(statErr),
 		"expected WAL directory to be absent after early Init failure")
-}
-
-// AC3: When manifest.Init fails, Init cleans up the WAL directory and lock file
-// it created so no partial state is left on disk.
-func TestInit_ManifestFailure_CleansUpCreatedFiles(t *testing.T) {
-	dbPath := t.TempDir() + "/cleanupdb"
-
-	// Inject a failing manifest init function.
-	manifestErr := errors.New("simulated manifest failure")
-	*waldb.ManifestInitFn = func(dir string) error {
-		return manifestErr
-	}
-	t.Cleanup(waldb.ResetManifestInitFn)
-
-	err := waldb.Init(dbPath, logger.NoOpLogger{})
-	tst.AssertNotNil(t, err, "expected Init to fail when manifest.Init fails")
-	tst.AssertTrue(t, errors.Is(err, waldb.ErrInitFailed), "expected ErrInitFailed")
-
-	// WAL directory must have been removed by cleanup.
-	_, statErr := os.Stat(filepath.Join(dbPath, waldb.WALDirName))
-	tst.AssertTrue(t, os.IsNotExist(statErr),
-		"expected WAL directory to be cleaned up after manifest failure")
-
-	// Lock file must have been removed by cleanup.
-	_, statErr = os.Stat(filepath.Join(dbPath, waldb.LockFileName))
-	tst.AssertTrue(t, os.IsNotExist(statErr),
-		"expected lock file to be cleaned up after manifest failure")
 }

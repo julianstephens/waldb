@@ -9,6 +9,8 @@ import (
 	"github.com/julianstephens/go-utils/helpers"
 
 	"github.com/julianstephens/waldb/internal/logger"
+	"github.com/julianstephens/waldb/internal/waldb/config"
+	"github.com/julianstephens/waldb/internal/waldb/manifest"
 )
 
 var (
@@ -16,21 +18,6 @@ var (
 	ErrInvalidDir    = errors.New("waldb: invalid dir")
 	ErrAlreadyExists = errors.New("waldb: already exists")
 )
-
-// manifestInitFn is the function used to initialize the manifest.
-// It is set via RegisterManifestInit (called by the manifest package init()).
-// It is a variable so it can be replaced in tests.
-var manifestInitFn func(string) error
-
-// defaultManifestInitFn stores the registered default so tests can restore it.
-var defaultManifestInitFn func(string) error
-
-// RegisterManifestInit sets the manifest initialization function.
-// It is called automatically by the waldb/manifest package init().
-func RegisterManifestInit(fn func(string) error) {
-	manifestInitFn = fn
-	defaultManifestInitFn = fn
-}
 
 // Init initializes a new WAL database at the given directory path.
 // It creates the necessary directory structure and manifest file.
@@ -41,14 +28,6 @@ func RegisterManifestInit(fn func(string) error) {
 func Init(dir string, lg logger.Logger) error {
 	if lg == nil {
 		lg = &logger.NoOpLogger{}
-	}
-
-	if manifestInitFn == nil {
-		return fmt.Errorf(
-			"init %s: %w: manifest initializer not registered (import waldb/manifest)",
-			dir,
-			ErrInitFailed,
-		)
 	}
 
 	exists, info, err := helpers.ExistsWithInfo(dir)
@@ -83,14 +62,14 @@ func Init(dir string, lg logger.Logger) error {
 
 	created := []string{}
 	lg.Debug("creating WAL directory", "dir", dir)
-	if err := os.Mkdir(filepath.Join(dir, WALDirName), 0750); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, config.WALDirName), 0750); err != nil {
 		lg.Error("failed to create WAL directory", err, "dir", dir)
 		return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
 	}
-	created = append(created, WALDirName)
+	created = append(created, config.WALDirName)
 
 	lg.Debug("creating lock file", "dir", dir)
-	if file, err := os.Create(filepath.Join(dir, LockFileName)); err != nil { // nolint:gosec
+	if file, err := os.Create(filepath.Join(dir, config.LockFileName)); err != nil { // nolint:gosec
 		lg.Error("failed to create lock file", err, "dir", dir)
 		return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
 	} else {
@@ -99,10 +78,10 @@ func Init(dir string, lg logger.Logger) error {
 			return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
 		}
 	}
-	created = append(created, LockFileName)
+	created = append(created, config.LockFileName)
 
 	lg.Debug("initializing manifest", "dir", dir)
-	if err := manifestInitFn(dir); err != nil {
+	if _, err := manifest.Init(dir); err != nil {
 		lg.Error("failed to initialize manifest", err, "dir", dir)
 		lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
 		for _, name := range created {

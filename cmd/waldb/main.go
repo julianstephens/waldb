@@ -7,11 +7,11 @@ import (
 	"path"
 
 	"github.com/alecthomas/kong"
-
 	"github.com/julianstephens/go-utils/cliutil"
+
 	"github.com/julianstephens/waldb/internal/cli"
 	"github.com/julianstephens/waldb/internal/logger"
-	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/config"
 )
 
 type LogOpts struct {
@@ -68,10 +68,10 @@ func createLogger(opts LogOpts) (logger.Logger, error) {
 		return nil, err
 	}
 	fileLogger, err := logger.NewFileLogger(
-		path.Join(wd, waldb.DefaultLogDir),
-		waldb.DefaultLogFileName,
-		waldb.DefaultLogMaxSize,
-		waldb.DefaultLogMaxBackups,
+		path.Join(wd, config.DefaultLogDir),
+		config.DefaultLogFileName,
+		config.DefaultLogMaxSize,
+		config.DefaultLogMaxBackups,
 	)
 	if err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func main() {
 			Compact: true,
 		}),
 		kong.Vars{
-			"version": waldb.Version,
+			"version": config.Version,
 		},
 	)
 

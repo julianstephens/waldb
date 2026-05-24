@@ -34,6 +34,11 @@ test-race:
 	@echo "Running tests with race detector..."
 	@go test -race -v ./...
 
+## test-e2e: Run end-to-end tests
+test-e2e:
+	@echo "Running end-to-end tests..."
+	@go test -race -v ./internal/tests/e2e/...
+
 ## test-coverage: Run tests with coverage
 test-coverage:
 	@echo "Running tests with coverage..."
@@ -61,7 +66,7 @@ lint:
 	fi
 	@echo "Linting complete"
 
-check: fmt lint test
+check: fmt lint test test-e2e
 
 ## clean: Clean build artifacts
 clean:

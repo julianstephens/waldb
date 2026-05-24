@@ -1,4 +1,4 @@
-package waldb
+package config
 
 // WAL segment file defaults
 const (
@@ -16,11 +16,13 @@ const (
 
 // Database versioning
 const (
-	Version = "0.1.0"
+	Version         = "0.1.0"
+	ManifestVersion = 1
 )
 
 // File and directory names
 const (
-	LockFileName = "LOCK"
-	WALDirName   = "wal"
+	LockFileName     = "LOCK"
+	ManifestFileName = "MANIFEST.json"
+	WALDirName       = "wal"
 )

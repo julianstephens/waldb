@@ -11,7 +11,7 @@ import (
 	"github.com/julianstephens/go-utils/helpers"
 
 	"github.com/julianstephens/waldb/internal/logger"
-	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/config"
 	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/memtable"
@@ -298,7 +298,7 @@ func (db *DB) checkOpen() error {
 
 // initialize sets up the WAL log, memtable, and replays existing transactions to restore the database state.
 func (db *DB) initialize() error {
-	logDir := filepath.Join(db.dir, waldb.WALDirName)
+	logDir := filepath.Join(db.dir, config.WALDirName)
 	log, err := wl.OpenLog(logDir, wl.LogOpts{SegmentMaxBytes: int64(db.manifest.WalSegmentMaxBytes)}, db.logger)
 	if err != nil {
 		db.logger.Error("failed to open WAL log", err, "dir", logDir)
@@ -343,7 +343,7 @@ func validateDBDir(dir string) error {
 		return wrapDBErr("open", ErrInvalidDir, dir, err)
 	}
 
-	manifestPath := filepath.Join(dir, manifest.ManifestFileName)
+	manifestPath := filepath.Join(dir, config.ManifestFileName)
 	info, err := validatePath(manifestPath, false)
 	if err != nil {
 		return wrapDBErr("open", ErrManifestMissing, dir, err)
@@ -357,7 +357,7 @@ func validateDBDir(dir string) error {
 		)
 	}
 
-	lockPath := filepath.Join(dir, waldb.LockFileName)
+	lockPath := filepath.Join(dir, config.LockFileName)
 	info, err = validatePath(lockPath, false)
 	if err != nil {
 		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("lock file invalid: %w", err))
@@ -366,7 +366,7 @@ func validateDBDir(dir string) error {
 		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("lock file is not a regular file: %s", lockPath))
 	}
 
-	walDir := filepath.Join(dir, waldb.WALDirName)
+	walDir := filepath.Join(dir, config.WALDirName)
 	if _, err := validatePath(walDir, true); err != nil {
 		return wrapDBErr("open", ErrInvalidDir, dir, fmt.Errorf("WAL directory missing: %w", err))
 	}
@@ -396,7 +396,7 @@ func validatePath(path string, isDir bool) (info fs.FileInfo, err error) {
 
 // acquireFileLock attempts to acquire a file lock on the database directory to prevent concurrent access.
 func (db *DB) acquireFileLock() error {
-	lockPath := filepath.Join(db.dir, waldb.LockFileName)
+	lockPath := filepath.Join(db.dir, config.LockFileName)
 	fileLock := flock.New(lockPath)
 
 	locked, err := fileLock.TryLock()

@@ -13,7 +13,7 @@ import (
 
 	"github.com/julianstephens/waldb/internal/logger"
 	"github.com/julianstephens/waldb/internal/testutil"
-	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/config"
 	waldb_db "github.com/julianstephens/waldb/internal/waldb/db"
 	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
@@ -807,7 +807,7 @@ func TestOpen_MissingWALDir_ReturnsError(t *testing.T) {
 	_, err := manifest.Init(dbPath)
 	tst.RequireNoError(t, err)
 
-	lockPath := dbPath + "/" + waldb.LockFileName
+	lockPath := dbPath + "/" + config.LockFileName
 	f, err := os.Create(lockPath) // nolint:gosec
 	tst.RequireNoError(t, err)
 	tst.RequireNoError(t, f.Close())
@@ -826,7 +826,7 @@ func TestOpen_MissingLockFile_ReturnsError(t *testing.T) {
 	_, err := manifest.Init(dbPath)
 	tst.RequireNoError(t, err)
 
-	walDir := dbPath + "/" + waldb.WALDirName
+	walDir := dbPath + "/" + config.WALDirName
 	err = os.MkdirAll(walDir, 0o750)
 	tst.RequireNoError(t, err)
 
