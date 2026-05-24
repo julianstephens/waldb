@@ -188,6 +188,32 @@ func TestGetDeleted(t *testing.T) {
 	}
 }
 
+// TestGetDefensiveCopy ensures that mutating the value returned by Get does not affect the stored entry.
+func TestGetDefensiveCopy(t *testing.T) {
+	tbl := memtable.New()
+	key := []byte("key")
+	original := []byte("value")
+	if err := tbl.Put(key, original); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := tbl.Get(key)
+	if !ok {
+		t.Fatal("expected Get to return true")
+	}
+
+	// Mutate the returned slice.
+	got[0] = 'X'
+
+	got2, ok := tbl.Get(key)
+	if !ok {
+		t.Fatal("expected second Get to return true")
+	}
+	if !bytes.Equal(got2, original) {
+		t.Errorf("stored value was mutated: got %q, want %q", got2, original)
+	}
+}
+
 // TestDeleteOperations tests Delete with various scenarios
 func TestDeleteOperations(t *testing.T) {
 	tests := []struct {
@@ -491,8 +517,9 @@ func TestApplyNilKey(t *testing.T) {
 	if err != memtable.ErrNilKey {
 		t.Errorf("expected ErrNilKey, got %v", err)
 	}
-	if _, ok := tbl.Get([]byte("key1")); !ok {
-		t.Error("key1 should have been applied before the error")
+	// Apply validates all ops before mutating; nothing is applied when validation fails.
+	if _, ok := tbl.Get([]byte("key1")); ok {
+		t.Error("key1 should not be present: Apply is atomic and rolled back on error")
 	}
 }
 
@@ -647,14 +674,14 @@ func TestManyKeys(t *testing.T) {
 
 	// Put many keys
 	for i := 0; i < numKeys; i++ {
-		key := []byte{byte(i >> 8), byte(i)}
+		key := []byte{byte(i >> 8), byte(i & 0xFF)}
 		value := []byte("value")
 		_ = tbl.Put(key, value)
 	}
 
 	// Verify all can be retrieved
 	for i := 0; i < numKeys; i++ {
-		key := []byte{byte(i >> 8), byte(i)}
+		key := []byte{byte(i >> 8), byte(i & 0xFF)}
 		_, ok := tbl.Get(key)
 		if !ok {
 			t.Errorf("key %d not found", i)
@@ -727,8 +754,7 @@ func TestUnicodeData(t *testing.T) {
 	}
 }
 
-// TestApplyAtomicity verifies Apply behavior on error
-// Note: Apply is NOT atomic - it applies operations sequentially and stops on error
+// TestApplyAtomicity verifies Apply is all-or-nothing: if validation fails, no ops are applied.
 func TestApplyAtomicity(t *testing.T) {
 	tbl := memtable.New()
 
@@ -743,13 +769,62 @@ func TestApplyAtomicity(t *testing.T) {
 		t.Fatal("expected error due to nil key")
 	}
 
-	// key1 was applied before the error occurred
-	if _, ok := tbl.Get([]byte("key1")); !ok {
-		t.Error("key1 should be present as it was applied before the error")
+	// Apply validates all ops first; on error nothing is applied.
+	if _, ok := tbl.Get([]byte("key1")); ok {
+		t.Error("key1 should not be present: Apply rolled back on validation error")
 	}
 
-	// key3 was NOT applied because error occurred before it
 	if _, ok := tbl.Get([]byte("key3")); ok {
-		t.Error("key3 should not be present as error occurred before it")
+		t.Error("key3 should not be present: Apply rolled back on validation error")
 	}
+}
+
+// TestApplyInvalidBatchDoesNotPartiallyMutate verifies that a batch containing an
+// invalid op kind leaves the memtable completely unchanged (validation is all-or-nothing).
+func TestApplyInvalidBatchDoesNotPartiallyMutate(t *testing.T) {
+	invalidOp := kv.Op{Kind: kv.OpKind(255), Key: []byte("x"), Value: []byte("x")}
+
+	t.Run("empty_table", func(t *testing.T) {
+		tbl := memtable.New()
+
+		ops := []kv.Op{
+			{Kind: kv.OpPut, Key: []byte("a"), Value: []byte("1")},
+			invalidOp,
+		}
+
+		err := tbl.Apply(ops)
+		if err == nil {
+			t.Fatal("expected error for batch with invalid op kind")
+		}
+
+		if _, ok := tbl.Get([]byte("a")); ok {
+			t.Error("key \"a\" should not be present after failed Apply")
+		}
+	})
+
+	t.Run("pre_existing_data", func(t *testing.T) {
+		tbl := memtable.New()
+
+		if err := tbl.Put([]byte("a"), []byte("old")); err != nil {
+			t.Fatalf("unexpected error on Put: %v", err)
+		}
+
+		ops := []kv.Op{
+			{Kind: kv.OpPut, Key: []byte("a"), Value: []byte("new")},
+			invalidOp,
+		}
+
+		err := tbl.Apply(ops)
+		if err == nil {
+			t.Fatal("expected error for batch with invalid op kind")
+		}
+
+		got, ok := tbl.Get([]byte("a"))
+		if !ok {
+			t.Fatal("key \"a\" should still be present after failed Apply")
+		}
+		if string(got) != "old" {
+			t.Errorf("expected value \"old\", got %q", got)
+		}
+	})
 }

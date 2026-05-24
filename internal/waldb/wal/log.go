@@ -135,18 +135,22 @@ func OpenLog(dir string, opts LogOpts, lg logger.Logger) (*Log, error) {
 	return mgr, nil
 }
 
+// SegmentIDs returns a sorted slice of all segment IDs in the log.
 func (m *Log) SegmentIDs() []uint64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.sortSegments()
 	return slices.Clone(m.segments)
 }
 
+// SegmentPath returns the file path for the given segment ID.
 func (m *Log) SegmentPath(segId uint64) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.segmentPath(m.dir, segId, true)
 }
 
+// OpenSegment opens the segment with the given ID for reading.
 func (m *Log) OpenSegment(segId uint64) (SegmentReader, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

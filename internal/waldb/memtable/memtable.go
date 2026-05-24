@@ -1,6 +1,7 @@
 package memtable
 
 import (
+	"bytes"
 	"errors"
 	"sync"
 
@@ -9,6 +10,7 @@ import (
 
 var (
 	ErrNilKey        = errors.New("memtable: nil key")
+	ErrInvalidKey    = errors.New("memtable: invalid key")
 	ErrInvalidOpKind = errors.New("memtable: invalid op kind")
 )
 
@@ -44,7 +46,7 @@ func (t *Table) Get(key []byte) (value []byte, ok bool) {
 	if !ok || e.Tombstone {
 		return nil, false
 	}
-	return e.Value, true
+	return bytes.Clone(e.Value), true
 }
 
 // Put sets key to value.
@@ -57,8 +59,7 @@ func (t *Table) Put(key, value []byte) error {
 	defer t.mu.Unlock()
 
 	k := string(key)
-	v := make([]byte, len(value))
-	copy(v, value)
+	v := bytes.Clone(value)
 
 	t.m[k] = Entry{Value: v, Tombstone: false}
 	return nil
@@ -82,17 +83,44 @@ func (t *Table) Apply(ops []kv.Op) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if err := validateOps(ops); err != nil {
+		return err
+	}
+
 	for _, op := range ops {
-		if op.Key == nil {
-			return ErrNilKey
-		}
 		switch op.Kind {
 		case kv.OpPut:
-			v := make([]byte, len(op.Value))
-			copy(v, op.Value)
-			t.m[string(op.Key)] = Entry{Value: v, Tombstone: false}
+			t.putLocked(op.Key, op.Value)
 		case kv.OpDelete:
-			t.m[string(op.Key)] = Entry{Value: nil, Tombstone: true}
+			t.deleteLocked(op.Key)
+		}
+	}
+	return nil
+}
+
+// putLocked sets key to value without validation.
+// Caller must hold write lock.
+func (t *Table) putLocked(key, value []byte) {
+	t.m[string(key)] = Entry{Value: bytes.Clone(value), Tombstone: false}
+}
+
+// deleteLocked marks key as deleted (tombstone) without validation.
+// Caller must hold write lock.
+func (t *Table) deleteLocked(key []byte) {
+	t.m[string(key)] = Entry{Tombstone: true}
+}
+
+// validateOps checks that all operations are valid (non-nil/empty keys, valid kinds).
+func validateOps(ops []kv.Op) error {
+	for _, op := range ops {
+		switch op.Kind {
+		case kv.OpPut, kv.OpDelete:
+			if op.Key == nil {
+				return ErrNilKey
+			}
+			if len(op.Key) == 0 {
+				return ErrInvalidKey
+			}
 		default:
 			return ErrInvalidOpKind
 		}
@@ -108,8 +136,7 @@ func (t *Table) Snapshot() map[string]Entry {
 	out := make(map[string]Entry, len(t.m))
 	for k, e := range t.m {
 		// Copy value to avoid sharing memory.
-		v := make([]byte, len(e.Value))
-		copy(v, e.Value)
+		v := bytes.Clone(e.Value)
 		out[k] = Entry{Value: v, Tombstone: e.Tombstone}
 	}
 	return out

@@ -1,4 +1,4 @@
-package manifest
+package manifest_test
 
 import (
 	"encoding/json"
@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/julianstephens/waldb/internal/waldb"
+	"github.com/julianstephens/waldb/internal/waldb/manifest"
 )
 
 // TestInit verifies manifest creation with atomic write
@@ -13,15 +16,15 @@ func TestInit(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create default manifest
-	_, err := Init(tmpDir)
+	_, err := manifest.Init(tmpDir)
 	if err != nil {
-		t.Fatalf("Init() error = %v", err)
+		t.Fatalf("manifest.Init() error = %v", err)
 	}
 
 	// Verify manifest is readable and valid
-	opened, err := Open(tmpDir)
+	opened, err := manifest.Open(tmpDir)
 	if err != nil {
-		t.Fatalf("Open() error = %v", err)
+		t.Fatalf("manifest.Open() error = %v", err)
 	}
 
 	if opened == nil {
@@ -40,23 +43,23 @@ func TestInit_AlreadyExists(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create first manifest
-	_, err := Init(tmpDir)
+	_, err := manifest.Init(tmpDir)
 	if err != nil {
-		t.Fatalf("first Init() error = %v", err)
+		t.Fatalf("first manifest.Init() error = %v", err)
 	}
 
 	// Attempt to create again
-	_, err = Init(tmpDir)
+	_, err = manifest.Init(tmpDir)
 	if err == nil {
 		t.Fatalf("expected error when manifest already exists, got nil")
 	}
 
 	// Verify it's a ManifestError with AlreadyExists kind
-	manifestErr, ok := err.(*ManifestError)
+	manifestErr, ok := err.(*manifest.ManifestError)
 	if !ok {
-		t.Fatalf("expected ManifestError, got %T", err)
+		t.Fatalf("expected manifest.ManifestError, got %T", err)
 	}
-	if manifestErr.Kind != ManifestErrorKindAlreadyExists {
+	if manifestErr.Kind != manifest.ManifestErrorKindAlreadyExists {
 		t.Errorf("expected Kind=AlreadyExists, got %v", manifestErr.Kind)
 	}
 }
@@ -66,38 +69,38 @@ func TestSave_AtomicWrite(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create initial manifest
-	_, err := Init(tmpDir)
+	_, err := manifest.Init(tmpDir)
 	if err != nil {
-		t.Fatalf("Init() error = %v", err)
+		t.Fatalf("manifest.Init() error = %v", err)
 	}
 
 	// Open the manifest and save it
-	manifest, err := Open(tmpDir)
+	m, err := manifest.Open(tmpDir)
 	if err != nil {
-		t.Fatalf("Open() error = %v", err)
+		t.Fatalf("manifest.Open() error = %v", err)
 	}
 
-	if err := manifest.Save(tmpDir); err != nil {
+	if err := m.Save(tmpDir); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
 
 	// Read the saved manifest file directly
-	data, err := os.ReadFile(filepath.Join(tmpDir, ManifestFileName)) //nolint:gosec
+	data, err := os.ReadFile(filepath.Join(tmpDir, waldb.ManifestFileName)) //nolint:gosec
 	if err != nil {
 		t.Fatalf("failed to read manifest file: %v", err)
 	}
 
 	// Verify it's valid JSON and matches what was saved
-	var saved Manifest
+	var saved manifest.Manifest
 	if err := json.Unmarshal(data, &saved); err != nil {
 		t.Fatalf("manifest file is not valid JSON: %v", err)
 	}
 
-	if saved.FormatVersion != manifest.FormatVersion {
-		t.Errorf("saved Version=%d, expected %d", saved.FormatVersion, manifest.FormatVersion)
+	if saved.FormatVersion != m.FormatVersion {
+		t.Errorf("saved Version=%d, expected %d", saved.FormatVersion, m.FormatVersion)
 	}
-	if saved.FsyncOnCommit != manifest.FsyncOnCommit {
-		t.Errorf("saved FsyncOnCommit=%v, expected %v", saved.FsyncOnCommit, manifest.FsyncOnCommit)
+	if saved.FsyncOnCommit != m.FsyncOnCommit {
+		t.Errorf("saved FsyncOnCommit=%v, expected %v", saved.FsyncOnCommit, m.FsyncOnCommit)
 	}
 }
 
@@ -106,15 +109,15 @@ func TestSave_MultipleTimes(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create initial manifest
-	_, err := Init(tmpDir)
+	_, err := manifest.Init(tmpDir)
 	if err != nil {
-		t.Fatalf("Init() error = %v", err)
+		t.Fatalf("manifest.Init() error = %v", err)
 	}
 
-	// Open and save first time
-	manifest1, err := Open(tmpDir)
+	// manifest.Open and save first time
+	manifest1, err := manifest.Open(tmpDir)
 	if err != nil {
-		t.Fatalf("Open() error = %v", err)
+		t.Fatalf("manifest.Open() error = %v", err)
 	}
 	if err := manifest1.Save(tmpDir); err != nil {
 		t.Fatalf("first Save() error = %v", err)
@@ -129,9 +132,9 @@ func TestSave_MultipleTimes(t *testing.T) {
 	}
 
 	// Open and verify the second save took effect
-	opened, err := Open(tmpDir)
+	opened, err := manifest.Open(tmpDir)
 	if err != nil {
-		t.Fatalf("Open() error = %v", err)
+		t.Fatalf("manifest.Open() error = %v", err)
 	}
 
 	if opened.FsyncOnCommit {
@@ -146,21 +149,21 @@ func TestSave_MultipleTimes(t *testing.T) {
 func TestOpen_FileNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	manifest, err := Open(tmpDir)
+	m, err := manifest.Open(tmpDir)
 	if err == nil {
 		t.Fatalf("expected error when manifest doesn't exist, got nil")
 	}
 
-	if manifest != nil {
-		t.Errorf("expected nil manifest, got %v", manifest)
+	if m != nil {
+		t.Errorf("expected nil manifest, got %v", m)
 	}
 
 	// Verify it's a ManifestError with NotFound kind
-	manifestErr, ok := err.(*ManifestError)
+	manifestErr, ok := err.(*manifest.ManifestError)
 	if !ok {
-		t.Fatalf("expected ManifestError, got %T", err)
+		t.Fatalf("expected manifest.ManifestError, got %T", err)
 	}
-	if manifestErr.Kind != ManifestErrorKindNotFound {
+	if manifestErr.Kind != manifest.ManifestErrorKindNotFound {
 		t.Errorf("expected Kind=NotFound, got %v", manifestErr.Kind)
 	}
 }
@@ -170,12 +173,12 @@ func TestOpen_InvalidJSON(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Write invalid JSON with secure permissions
-	manifestPath := filepath.Join(tmpDir, ManifestFileName)
+	manifestPath := filepath.Join(tmpDir, waldb.ManifestFileName)
 	if err := os.WriteFile(manifestPath, []byte("{invalid json}"), 0o600); err != nil {
 		t.Fatalf("failed to write invalid manifest: %v", err)
 	}
 
-	_, err := Open(tmpDir)
+	_, err := manifest.Open(tmpDir)
 	if err == nil {
 		t.Fatalf("expected error for invalid JSON, got nil")
 	}
@@ -184,11 +187,11 @@ func TestOpen_InvalidJSON(t *testing.T) {
 	// The important thing is that it returns an error
 
 	// Verify it's a ManifestError with Decode kind
-	manifestErr, ok := err.(*ManifestError)
+	manifestErr, ok := err.(*manifest.ManifestError)
 	if !ok {
-		t.Fatalf("expected ManifestError, got %T", err)
+		t.Fatalf("expected manifest.ManifestError, got %T", err)
 	}
-	if manifestErr.Kind != ManifestErrorKindDecode {
+	if manifestErr.Kind != manifest.ManifestErrorKindDecode {
 		t.Errorf("expected Kind=Decode, got %v", manifestErr.Kind)
 	}
 }
@@ -203,12 +206,12 @@ func TestOpen_UnsupportedVersion(t *testing.T) {
 		`{"format_version":%d,"fsync_on_commit":true,"max_key_bytes":4096,"max_value_bytes":4194304,"wal_segment_max_bytes":268435456}`,
 		futureVersion,
 	)
-	manifestPath := filepath.Join(tmpDir, ManifestFileName)
+	manifestPath := filepath.Join(tmpDir, waldb.ManifestFileName)
 	if err := os.WriteFile(manifestPath, []byte(manifestData), 0o600); err != nil {
 		t.Fatalf("failed to write manifest: %v", err)
 	}
 
-	_, err := Open(tmpDir)
+	_, err := manifest.Open(tmpDir)
 	if err == nil {
 		t.Fatalf("expected error for unsupported version, got nil")
 	}
@@ -217,18 +220,18 @@ func TestOpen_UnsupportedVersion(t *testing.T) {
 	// The important thing is that it returns an error
 
 	// Verify it's a ManifestError with UnsupportedVersion kind
-	manifestErr, ok := err.(*ManifestError)
+	manifestErr, ok := err.(*manifest.ManifestError)
 	if !ok {
-		t.Fatalf("expected ManifestError, got %T", err)
+		t.Fatalf("expected manifest.ManifestError, got %T", err)
 	}
-	if manifestErr.Kind != ManifestErrorKindUnsupportedVersion {
+	if manifestErr.Kind != manifest.ManifestErrorKindUnsupportedVersion {
 		t.Errorf("expected Kind=UnsupportedVersion, got %v", manifestErr.Kind)
 	}
 }
 
 // TestValidate_Valid tests that a valid manifest passes validation
 func TestValidate_Valid(t *testing.T) {
-	m := defaultManifest()
+	m := manifest.DefaultManifest()
 	if err := m.Validate(); err != nil {
 		t.Errorf("expected valid manifest to pass validation, got error: %v", err)
 	}
@@ -246,7 +249,7 @@ func TestValidate_InvalidFormatVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := defaultManifest()
+			m := manifest.DefaultManifest()
 			m.FormatVersion = tt.version
 
 			err := m.Validate()
@@ -254,11 +257,11 @@ func TestValidate_InvalidFormatVersion(t *testing.T) {
 				t.Fatalf("expected error for version %d, got nil", tt.version)
 			}
 
-			manifestErr, ok := err.(*ManifestError)
+			manifestErr, ok := err.(*manifest.ManifestError)
 			if !ok {
-				t.Fatalf("expected ManifestError, got %T", err)
+				t.Fatalf("expected manifest.ManifestError, got %T", err)
 			}
-			if manifestErr.Kind != ManifestErrorKindCorrupted {
+			if manifestErr.Kind != manifest.ManifestErrorKindCorrupted {
 				t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
 			}
 		})
@@ -281,7 +284,7 @@ func TestValidate_InvalidMaxKeyBytes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := defaultManifest()
+			m := manifest.DefaultManifest()
 			m.MaxKeyBytes = tt.maxKeyBytes
 
 			err := m.Validate()
@@ -293,11 +296,11 @@ func TestValidate_InvalidMaxKeyBytes(t *testing.T) {
 			}
 
 			if err != nil {
-				manifestErr, ok := err.(*ManifestError)
+				manifestErr, ok := err.(*manifest.ManifestError)
 				if !ok {
-					t.Fatalf("expected ManifestError, got %T", err)
+					t.Fatalf("expected manifest.ManifestError, got %T", err)
 				}
-				if manifestErr.Kind != ManifestErrorKindCorrupted {
+				if manifestErr.Kind != manifest.ManifestErrorKindCorrupted {
 					t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
 				}
 			}
@@ -321,7 +324,7 @@ func TestValidate_InvalidMaxValueBytes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := defaultManifest()
+			m := manifest.DefaultManifest()
 			m.MaxValueBytes = tt.maxValueBytes
 
 			err := m.Validate()
@@ -333,11 +336,11 @@ func TestValidate_InvalidMaxValueBytes(t *testing.T) {
 			}
 
 			if err != nil {
-				manifestErr, ok := err.(*ManifestError)
+				manifestErr, ok := err.(*manifest.ManifestError)
 				if !ok {
-					t.Fatalf("expected ManifestError, got %T", err)
+					t.Fatalf("expected manifest.ManifestError, got %T", err)
 				}
-				if manifestErr.Kind != ManifestErrorKindCorrupted {
+				if manifestErr.Kind != manifest.ManifestErrorKindCorrupted {
 					t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
 				}
 			}
@@ -362,7 +365,7 @@ func TestValidate_InvalidWalSegmentMaxBytes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := defaultManifest()
+			m := manifest.DefaultManifest()
 			m.WalSegmentMaxBytes = tt.walSegmentMaxBytes
 
 			err := m.Validate()
@@ -374,11 +377,11 @@ func TestValidate_InvalidWalSegmentMaxBytes(t *testing.T) {
 			}
 
 			if err != nil {
-				manifestErr, ok := err.(*ManifestError)
+				manifestErr, ok := err.(*manifest.ManifestError)
 				if !ok {
-					t.Fatalf("expected ManifestError, got %T", err)
+					t.Fatalf("expected manifest.ManifestError, got %T", err)
 				}
-				if manifestErr.Kind != ManifestErrorKindCorrupted {
+				if manifestErr.Kind != manifest.ManifestErrorKindCorrupted {
 					t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
 				}
 			}
@@ -388,7 +391,7 @@ func TestValidate_InvalidWalSegmentMaxBytes(t *testing.T) {
 
 // TestValidate_MultipleInvalidFields tests validation with multiple invalid fields
 func TestValidate_MultipleInvalidFields(t *testing.T) {
-	m := &Manifest{
+	m := &manifest.Manifest{
 		FormatVersion:      0, // Invalid
 		FsyncOnCommit:      true,
 		MaxKeyBytes:        -1, // Invalid
@@ -402,18 +405,18 @@ func TestValidate_MultipleInvalidFields(t *testing.T) {
 	}
 
 	// Validate should catch at least the first invalid field
-	manifestErr, ok := err.(*ManifestError)
+	manifestErr, ok := err.(*manifest.ManifestError)
 	if !ok {
-		t.Fatalf("expected ManifestError, got %T", err)
+		t.Fatalf("expected manifest.ManifestError, got %T", err)
 	}
-	if manifestErr.Kind != ManifestErrorKindCorrupted {
+	if manifestErr.Kind != manifest.ManifestErrorKindCorrupted {
 		t.Errorf("expected Kind=Corrupted, got %v", manifestErr.Kind)
 	}
 }
 
 // TestValidate_BoundaryValues tests validation at boundaries
 func TestValidate_BoundaryValues(t *testing.T) {
-	m := &Manifest{
+	m := &manifest.Manifest{
 		FormatVersion:      1, // Minimum valid positive value
 		FsyncOnCommit:      true,
 		MaxKeyBytes:        1, // Minimum positive value

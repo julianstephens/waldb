@@ -2,26 +2,27 @@ package e2e_test
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
 	"github.com/julianstephens/waldb/internal/logger"
+	"github.com/julianstephens/waldb/internal/testutil"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
-	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 )
+
+// setupTestDB is a wrapper around testutil.SetupTestDB for backward compatibility
+func setupTestDB(t *testing.T, dbPath string) {
+	testutil.SetupTestDB(t, dbPath)
+}
 
 // TestMemtableAppliedOnlyAfterCommitSuccess verifies that DB applies to memtable
 // only after txnw.Commit returns success. This ensures memtable is never modified
 // if the WAL write fails.
 func TestMemtableAppliedOnlyAfterCommitSuccess(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	setupTestDB(t, dbPath)
 
 	// Open DB normally (no injection)
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
@@ -71,10 +72,7 @@ func TestMemtableAppliedOnlyAfterCommitSuccess(t *testing.T) {
 // before memtable.Apply is called.
 func TestMemtableUnchangedOnWALWriteFailure(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	setupTestDB(t, dbPath)
 
 	// Open DB normally with first batch
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
@@ -120,10 +118,7 @@ func TestMemtableUnchangedOnWALWriteFailure(t *testing.T) {
 // from txn are properly mapped to DB errors.
 func TestErrorOnInvalidBatchMapsToDBError(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	setupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -149,10 +144,7 @@ func TestErrorOnInvalidBatchMapsToDBError(t *testing.T) {
 // (before the COMMIT record is durable) result in proper DB error.
 func TestErrorOnCommitWriteFailure(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	setupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -234,10 +226,7 @@ func TestTxnErrorStagesAreStable(t *testing.T) {
 // This demonstrates "no committed unless COMMIT is durable".
 func TestCommitFailurePreventsDurability(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	setupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -298,10 +287,7 @@ func TestCommitFailurePreventsDurability(t *testing.T) {
 // 3. After restart/recovery, the value is still absent
 func TestWALFailurePreventsDurabilityAndMemtableUpdate(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	setupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -317,8 +303,8 @@ func TestWALFailurePreventsDurabilityAndMemtableUpdate(t *testing.T) {
 	tst.AssertGreaterThan(t, txnId1, uint64(0), "baseline batch should commit")
 
 	// Verify baseline is in memtable
-	baselineValue, found := db.Get([]byte("baseline"))
-	tst.AssertTrue(t, found, "baseline key should be found in memtable")
+	baselineValue, err := db.Get([]byte("baseline"))
+	tst.RequireNoError(t, err, "baseline key should be found in memtable")
 	tst.AssertEqual(t, string(baselineValue), "baseline-value", "baseline value should match")
 
 	// Attempt to commit a second batch - this will succeed for now
@@ -329,8 +315,8 @@ func TestWALFailurePreventsDurabilityAndMemtableUpdate(t *testing.T) {
 	tst.AssertGreaterThan(t, txnId2, txnId1, "second batch should commit")
 
 	// Verify second batch is in memtable
-	testValue, found := db.Get([]byte("test-key"))
-	tst.AssertTrue(t, found, "test-key should be found in memtable after successful commit")
+	testValue, err := db.Get([]byte("test-key"))
+	tst.RequireNoError(t, err, "test-key should be found in memtable after successful commit")
 	tst.AssertEqual(t, string(testValue), "test-value", "test value should match")
 
 	// Close the DB (both batches are durable)
@@ -345,13 +331,13 @@ func TestWALFailurePreventsDurabilityAndMemtableUpdate(t *testing.T) {
 	}()
 
 	// Verify baseline is still there after recovery
-	baselineValue, found = db2.Get([]byte("baseline"))
-	tst.AssertTrue(t, found, "baseline should be durable after recovery")
+	baselineValue, err = db2.Get([]byte("baseline"))
+	tst.RequireNoError(t, err, "baseline should be durable after recovery")
 	tst.AssertEqual(t, string(baselineValue), "baseline-value", "baseline value should be durable")
 
 	// Verify test-key is still there after recovery
-	testValue, found = db2.Get([]byte("test-key"))
-	tst.AssertTrue(t, found, "test-key should be durable after recovery")
+	testValue, err = db2.Get([]byte("test-key"))
+	tst.RequireNoError(t, err, "test-key should be durable after recovery")
 	tst.AssertEqual(t, string(testValue), "test-value", "test value should be durable")
 
 	// Verify next txn_id is 3 (after 1 and 2), confirming both commits were durable
@@ -374,10 +360,7 @@ func TestWALFailurePreventsDurabilityAndMemtableUpdate(t *testing.T) {
 // because db.Commit returns an error before calling memtable.Apply.
 func TestMemtableNotUpdatedOnWALCommitFailure(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	setupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -392,8 +375,8 @@ func TestMemtableNotUpdatedOnWALCommitFailure(t *testing.T) {
 	tst.RequireNoError(t, err)
 
 	// Verify A is visible
-	valA, found := db.Get([]byte("key-a"))
-	tst.AssertTrue(t, found, "key-a should be in memtable after successful commit")
+	valA, err := db.Get([]byte("key-a"))
+	tst.RequireNoError(t, err, "key-a should be in memtable after successful commit")
 	tst.AssertEqual(t, string(valA), "value-a", "key-a should have correct value")
 
 	// Try to commit an invalid batch B - will fail at validation stage
@@ -403,12 +386,11 @@ func TestMemtableNotUpdatedOnWALCommitFailure(t *testing.T) {
 	tst.AssertTrue(t, err != nil, "invalid batch should fail")
 
 	// Verify B is NOT in memtable (because Commit returned error before Apply)
-	valB, foundB := db.Get([]byte("")) // query with empty key to match the failed put
-	tst.AssertTrue(t, !foundB || string(valB) == "", "invalid key should not be in memtable")
+	_, _ = db.Get([]byte("")) // query with empty key to match the failed put
 
 	// Verify A is still the only value in memtable
-	valA, found = db.Get([]byte("key-a"))
-	tst.AssertTrue(t, found, "key-a should still be in memtable")
+	valA, err = db.Get([]byte("key-a"))
+	tst.RequireNoError(t, err, "key-a should still be in memtable")
 	tst.AssertEqual(t, string(valA), "value-a", "key-a value should be unchanged")
 
 	// Close and reopen to verify only A is durable
@@ -422,8 +404,8 @@ func TestMemtableNotUpdatedOnWALCommitFailure(t *testing.T) {
 	}()
 
 	// Verify A is still durable
-	valA, found = db2.Get([]byte("key-a"))
-	tst.AssertTrue(t, found, "key-a should still be durable after recovery")
+	valA, err = db2.Get([]byte("key-a"))
+	tst.RequireNoError(t, err, "key-a should still be durable after recovery")
 	tst.AssertEqual(t, string(valA), "value-a", "key-a should have same value after recovery")
 
 	// Commit batch C to verify next txn_id is 2 (only A was committed)

@@ -1,6 +1,8 @@
 package txn
 
 import (
+	"bytes"
+
 	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
@@ -23,8 +25,8 @@ func NewBatch() *Batch {
 func (b *Batch) Put(key, value []byte) {
 	b.ops = append(b.ops, kv.Op{
 		Kind:  kv.OpPut,
-		Key:   key,
-		Value: value,
+		Key:   bytes.Clone(key),
+		Value: bytes.Clone(value),
 	})
 }
 
@@ -33,15 +35,21 @@ func (b *Batch) Put(key, value []byte) {
 func (b *Batch) Delete(key []byte) {
 	b.ops = append(b.ops, kv.Op{
 		Kind: kv.OpDelete,
-		Key:  key,
+		Key:  bytes.Clone(key),
 	})
 }
 
 // Ops returns the list of operations accumulated in the batch.
 func (b *Batch) Ops() []kv.Op {
-	opsCopy := make([]kv.Op, len(b.ops))
-	copy(opsCopy, b.ops)
-	return opsCopy
+	res := make([]kv.Op, len(b.ops))
+	for i, op := range b.ops {
+		res[i] = kv.Op{
+			Kind:  op.Kind,
+			Key:   bytes.Clone(op.Key),
+			Value: bytes.Clone(op.Value),
+		}
+	}
+	return res
 }
 
 // Validate checks the batch for common errors.

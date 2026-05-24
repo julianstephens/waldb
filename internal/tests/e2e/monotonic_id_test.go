@@ -1,14 +1,13 @@
 package e2e_test
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
 	"github.com/julianstephens/waldb/internal/logger"
+	"github.com/julianstephens/waldb/internal/testutil"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
-	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 )
 
@@ -16,10 +15,7 @@ import (
 // This tests that the allocator is initialized correctly with no recovery data.
 func TestIdStartsAtOne(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	testutil.SetupTestDB(t, dbPath)
 
 	// Open a brand-new DB (no segments)
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
@@ -43,10 +39,7 @@ func TestIdStartsAtOne(t *testing.T) {
 // with the NextTxnId value from recovery of committed transactions.
 func TestIdSeededFromRecovery(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	testutil.SetupTestDB(t, dbPath)
 
 	// Phase 1: Create a DB and commit multiple batches
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
@@ -92,10 +85,7 @@ func TestIdSeededFromRecovery(t *testing.T) {
 
 func TestIdAcrossRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	testutil.SetupTestDB(t, dbPath)
 
 	// 1. Open(path) - fresh DB
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})

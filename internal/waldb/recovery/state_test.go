@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"strconv"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
@@ -328,8 +329,8 @@ func TestStateTransitions_Interleaving(t *testing.T) {
 				// Add a simple operation to each
 				err = rs.OnPut(record.PutOpPayload{
 					TxnID: txnID,
-					Key:   []byte("key" + string(rune(txnID))),
-					Value: []byte("value" + string(rune(txnID))),
+					Key:   []byte("key" + strconv.FormatUint(txnID, 10)),
+					Value: []byte("value" + strconv.FormatUint(txnID, 10)),
 				})
 				tst.AssertNoError(t, err, "PUT should succeed")
 			}

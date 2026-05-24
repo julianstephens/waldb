@@ -1,14 +1,13 @@
 package e2e_test
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
 	"github.com/julianstephens/waldb/internal/logger"
+	"github.com/julianstephens/waldb/internal/testutil"
 	waldb "github.com/julianstephens/waldb/internal/waldb/db"
-	"github.com/julianstephens/waldb/internal/waldb/manifest"
 	"github.com/julianstephens/waldb/internal/waldb/txn"
 )
 
@@ -16,10 +15,7 @@ import (
 // any records to the WAL. This prevents orphan records when input validation fails.
 func TestInvalidBatchDoesNotWriteWAL(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	testutil.SetupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -60,10 +56,7 @@ func TestInvalidBatchDoesNotWriteWAL(t *testing.T) {
 // we verify that only durable commits are replayed.
 func TestWALErrorPreventsMemtableApply(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	testutil.SetupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -110,10 +103,7 @@ func TestWALErrorPreventsMemtableApply(t *testing.T) {
 // succeed with FsyncOnCommit enabled.
 func TestFsyncOnCommitWiring(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	testutil.SetupTestDB(t, dbPath)
 
 	// Open DB with fsync enabled
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
@@ -135,10 +125,7 @@ func TestFsyncOnCommitWiring(t *testing.T) {
 // By verifying recovery correctly replays the batch, we confirm the WAL order.
 func TestBatchCommitSequence(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	testutil.SetupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -184,10 +171,7 @@ func TestBatchCommitSequence(t *testing.T) {
 // Recovery correctly seeds the next_txn_id from all committed transactions.
 func TestMultipleBatchesCommitSequence(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-
-	tst.RequireNoError(t, os.MkdirAll(dbPath, 0o750))
-	_, err := manifest.Init(dbPath)
-	tst.RequireNoError(t, err)
+	testutil.SetupTestDB(t, dbPath)
 
 	db, err := waldb.Open(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
