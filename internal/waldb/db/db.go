@@ -93,18 +93,22 @@ func (db *DB) Close() error {
 	}
 
 	db.logger.Info("closing database", "dir", db.dir)
+	var closeErr error
 
-	if err := db.wal.Close(); err != nil {
-		db.logger.Error("failed to close WAL log", err, "dir", db.dir)
-		return wrapDBErr("close", ErrCloseFailed, db.dir, err)
+	if db.wal != nil {
+		if err := db.wal.Close(); err != nil {
+			db.logger.Error("failed to close WAL log", err, "dir", db.dir)
+			closeErr = wrapDBErr("close", ErrCloseFailed, db.dir, err)
+		}
 	}
 
-	if err := db.releaseLock(); err != nil {
-		return err
+	if err := db.releaseLock(); err != nil && closeErr == nil {
+		closeErr = err
 	}
 
 	db.closed = true
-	return nil
+	db.logger.Info("database closed", "dir", db.dir)
+	return closeErr
 }
 
 // Path returns the database path.
