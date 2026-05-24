@@ -6,6 +6,7 @@ import (
 )
 
 var (
+	ErrAlreadyExists      = errors.New("db: already exists")
 	ErrInvalidDir         = errors.New("db: invalid dir")
 	ErrOpenFailed         = errors.New("db: open failed")
 	ErrManifestMissing    = errors.New("db: manifest missing")

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path"
 	"path/filepath"
 	"sync"
 
@@ -23,7 +25,7 @@ import (
 // DB represents a WAL-based database instance.
 type DB struct {
 	dir         string
-	lock        *flock.Flock
+	fileLock    *flock.Flock
 	wal         *wl.Log
 	txnw        *txn.Writer
 	memtable    *memtable.Table
@@ -32,6 +34,56 @@ type DB struct {
 	writeMu     *sync.Mutex   // protects commit operations to ensure serializability
 	logger      logger.Logger
 	closed      bool
+}
+
+// Init initializes a new WAL database at the given directory path.
+// It creates the necessary directory structure and manifest file.
+// If the directory already exists and is not empty, it returns an error
+func Init(dir string, lg logger.Logger) error {
+	if lg == nil {
+		lg = &logger.NoOpLogger{}
+	}
+
+	if exists := helpers.Exists(dir); exists {
+		lg.Debug("initializing database in existing directory", "dir", dir)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			lg.Error("failed to read existing directory", err, "dir", dir)
+			return wrapDBErr("init", ErrInitFailed, dir, err)
+		}
+		if len(entries) > 0 {
+			lg.Error("cannot initialize database: directory is not empty", nil, "dir", dir, "entry_count", len(entries))
+			return wrapDBErr("init", ErrAlreadyExists, dir, errors.New("provided directory is not empty"))
+		}
+	}
+
+	lg.Info("initializing new database", "dir", dir)
+
+	lg.Debug("creating database directory structure", "dir", dir)
+	if err := helpers.Ensure(dir, true); err != nil {
+		lg.Error("failed to ensure database directory", err, "dir", dir)
+		return wrapDBErr("init", ErrInitFailed, dir, err)
+	}
+	lg.Debug("creating WAL directory", "dir", dir)
+	if err := helpers.Ensure(path.Join(dir, waldb.WALDirName), true); err != nil {
+		lg.Error("failed to create WAL directory", err, "dir", dir)
+		return wrapDBErr("init", ErrInitFailed, dir, err)
+	}
+
+	lg.Debug("creating lock file", "dir", dir)
+	if err := helpers.Ensure(path.Join(dir, waldb.LockFileName), false); err != nil {
+		lg.Error("failed to create lock file", err, "dir", dir)
+		return wrapDBErr("init", ErrInitFailed, dir, err)
+	}
+
+	lg.Debug("initializing manifest", "dir", dir)
+	if _, err := manifest.Init(dir); err != nil {
+		lg.Error("failed to initialize manifest", err, "dir", dir)
+		return wrapDBErr("init", ErrInitFailed, dir, err)
+	}
+
+	lg.Info("database initialized successfully", "dir", dir)
+	return nil
 }
 
 // Open opens an existing WAL database at the given directory path.
@@ -409,7 +461,7 @@ func (db *DB) acquireLock() error {
 		return wrapDBErr("open", ErrLocked, db.dir, errors.New("database is locked"))
 	}
 
-	db.lock = fileLock
+	db.fileLock = fileLock
 
 	db.logger.Info("acquired database lock", "lock_path", lockPath)
 	return nil
@@ -417,11 +469,11 @@ func (db *DB) acquireLock() error {
 
 // releaseLock releases the file lock on the database directory.
 func (db *DB) releaseLock() error {
-	if db.lock == nil {
+	if db.fileLock == nil {
 		return nil
 	}
 
-	if err := db.lock.Unlock(); err != nil {
+	if err := db.fileLock.Unlock(); err != nil {
 		db.logger.Error("failed to release database lock", err, "dir", db.dir)
 		return wrapDBErr("close", ErrCloseFailed, db.dir, err)
 	}
@@ -442,7 +494,7 @@ func (db *DB) cleanupOnError(err error) error {
 		}
 	}
 
-	if db.lock != nil {
+	if db.fileLock != nil {
 		if err := db.releaseLock(); err != nil {
 			lg.Error("failed to release lock during cleanup", err, "dir", db.dir)
 		}
