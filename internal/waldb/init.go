@@ -15,7 +15,7 @@ import (
 
 var (
 	ErrInitFailed    = errors.New("waldb: init failed")
-	ErrInvalidDir    = errors.New("waldb: invalid dir")
+	ErrInvalidDBDir  = errors.New("waldb: invalid db dir")
 	ErrAlreadyExists = errors.New("waldb: already exists")
 )
 
@@ -38,7 +38,7 @@ func Init(dir string, lg logger.Logger) error {
 	if exists {
 		if !info.IsDir() {
 			lg.Error("provided path is not a directory", nil, "dir", dir)
-			return fmt.Errorf("init %s: %w: path exists but is not a directory", dir, ErrInvalidDir)
+			return fmt.Errorf("init %s: %w: path exists but is not a directory", dir, ErrInvalidDBDir)
 		}
 
 		entries, err := os.ReadDir(dir)
@@ -61,6 +61,11 @@ func Init(dir string, lg logger.Logger) error {
 	}
 
 	created := []string{}
+	cleanup := func() {
+		for i := len(created) - 1; i >= 0; i-- {
+			_ = os.RemoveAll(filepath.Join(dir, created[i]))
+		}
+	}
 	lg.Debug("creating WAL directory", "dir", dir)
 	if err := os.Mkdir(filepath.Join(dir, config.WALDirName), 0750); err != nil {
 		lg.Error("failed to create WAL directory", err, "dir", dir)
@@ -71,10 +76,16 @@ func Init(dir string, lg logger.Logger) error {
 	lg.Debug("creating lock file", "dir", dir)
 	if file, err := os.Create(filepath.Join(dir, config.LockFileName)); err != nil { // nolint:gosec
 		lg.Error("failed to create lock file", err, "dir", dir)
+		lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
+		cleanup()
+		lg.Debug("cleanup complete", "dir", dir)
 		return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
 	} else {
 		if err := file.Close(); err != nil {
 			lg.Error("failed to close lock file", err, "dir", dir)
+			lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
+			cleanup()
+			lg.Debug("cleanup complete", "dir", dir)
 			return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
 		}
 	}
@@ -84,14 +95,8 @@ func Init(dir string, lg logger.Logger) error {
 	if _, err := manifest.Init(dir); err != nil {
 		lg.Error("failed to initialize manifest", err, "dir", dir)
 		lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
-		for _, name := range created {
-			path := filepath.Join(dir, name)
-			if err := os.RemoveAll(path); err != nil {
-				lg.Error("failed to clean up path during init error handling", err, "path", path)
-			} else {
-				lg.Debug("cleaned up path during init error handling", "path", path)
-			}
-		}
+		cleanup()
+		lg.Debug("cleanup complete", "dir", dir)
 		return fmt.Errorf("init %s: %w: %v", dir, ErrInitFailed, err)
 	}
 

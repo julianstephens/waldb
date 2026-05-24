@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
@@ -21,7 +22,7 @@ import (
 // E2E: Init → Open → Put → Close → Reopen → Get
 // Verifies that data written after Init survives a full restart.
 func TestInit_FullLifecycle_DataPersists(t *testing.T) {
-	dbPath := t.TempDir() + "/e2e-persist"
+	dbPath := filepath.Join(t.TempDir(), "e2e-persist")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -53,7 +54,7 @@ func TestInit_FullLifecycle_DataPersists(t *testing.T) {
 // E2E: Init → Open → Batch commit → Close → Reopen → Get all keys
 // Verifies that a committed batch is fully durable.
 func TestInit_BatchCommit_AllKeysPersist(t *testing.T) {
-	dbPath := t.TempDir() + "/e2e-batch"
+	dbPath := filepath.Join(t.TempDir(), "e2e-batch")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -95,7 +96,7 @@ func TestInit_BatchCommit_AllKeysPersist(t *testing.T) {
 
 // E2E: Init on a non-empty dir fails; pre-existing DB is still accessible.
 func TestInit_DoubleInit_ExistingDBUnaffected(t *testing.T) {
-	dbPath := t.TempDir() + "/e2e-double"
+	dbPath := filepath.Join(t.TempDir(), "e2e-double")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -129,7 +130,7 @@ func TestInit_DoubleInit_ExistingDBUnaffected(t *testing.T) {
 
 // E2E: Init → multiple write sessions accumulate data correctly.
 func TestInit_MultipleSessions_DataAccumulates(t *testing.T) {
-	dbPath := t.TempDir() + "/e2e-sessions"
+	dbPath := filepath.Join(t.TempDir(), "e2e-sessions")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -172,7 +173,7 @@ func TestInit_FilePathRejected_NoSideEffects(t *testing.T) {
 
 	err = waldb.Init(filePath, logger.NoOpLogger{})
 	tst.AssertNotNil(t, err, "expected error when db path is a file")
-	tst.AssertTrue(t, errors.Is(err, waldb.ErrInvalidDir), "expected ErrInvalidDir")
+	tst.AssertTrue(t, errors.Is(err, waldb.ErrInvalidDBDir), "expected ErrInvalidDir")
 
 	// The file itself must not have been replaced or removed.
 	info, statErr := os.Stat(filePath)
@@ -182,7 +183,7 @@ func TestInit_FilePathRejected_NoSideEffects(t *testing.T) {
 
 // E2E: Init → Open → Delete a key → Close → Reopen → key is absent.
 func TestInit_DeletePersistsAcrossRestart(t *testing.T) {
-	dbPath := t.TempDir() + "/e2e-delete"
+	dbPath := filepath.Join(t.TempDir(), "e2e-delete")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)

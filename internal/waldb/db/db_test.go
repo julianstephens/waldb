@@ -3,6 +3,7 @@ package db_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"sync"
@@ -46,7 +47,7 @@ func TestOpenWithExistingManifest(t *testing.T) {
 	}()
 
 	// Verify manifest exists
-	_, err = os.Stat(dbPath + "/MANIFEST.json")
+	_, err = os.Stat(filepath.Join(dbPath, config.ManifestFileName))
 	tst.RequireNoError(t, err)
 }
 
@@ -246,7 +247,7 @@ func TestCommitMixedOperations(t *testing.T) {
 
 func TestOpenCreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
-	dbPath := tmpDir + "/subdir"
+	dbPath := filepath.Join(tmpDir, "subdir")
 
 	// Create the directory first
 	err := os.MkdirAll(dbPath, 0o750)
@@ -807,7 +808,7 @@ func TestOpen_MissingWALDir_ReturnsError(t *testing.T) {
 	_, err := manifest.Init(dbPath)
 	tst.RequireNoError(t, err)
 
-	lockPath := dbPath + "/" + config.LockFileName
+	lockPath := filepath.Join(dbPath, config.LockFileName)
 	f, err := os.Create(lockPath) // nolint:gosec
 	tst.RequireNoError(t, err)
 	tst.RequireNoError(t, f.Close())
@@ -826,7 +827,7 @@ func TestOpen_MissingLockFile_ReturnsError(t *testing.T) {
 	_, err := manifest.Init(dbPath)
 	tst.RequireNoError(t, err)
 
-	walDir := dbPath + "/" + config.WALDirName
+	walDir := filepath.Join(dbPath, config.WALDirName)
 	err = os.MkdirAll(walDir, 0o750)
 	tst.RequireNoError(t, err)
 

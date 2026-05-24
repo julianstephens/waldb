@@ -3,6 +3,7 @@ package waldb_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	tst "github.com/julianstephens/go-utils/tests"
@@ -19,7 +20,7 @@ import (
 
 // AC1: Init on a fresh directory followed by Open succeeds.
 func TestInit_FreshDir_ThenOpen(t *testing.T) {
-	dbPath := t.TempDir() + "/freshdb"
+	dbPath := filepath.Join(t.TempDir(), "freshdb")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -41,30 +42,30 @@ func TestInit_PathIsFile_ReturnsErrInvalidDir(t *testing.T) {
 
 	err = waldb.Init(filePath, logger.NoOpLogger{})
 	tst.AssertNotNil(t, err, "expected error when db path is a file")
-	tst.AssertTrue(t, errors.Is(err, waldb.ErrInvalidDir), "expected ErrInvalidDir when path is a file")
+	tst.AssertTrue(t, errors.Is(err, waldb.ErrInvalidDBDir), "expected ErrInvalidDir when path is a file")
 }
 
 // AC1: Init on a fresh directory creates the expected layout.
 func TestInit_FreshDir_CreatesLayout(t *testing.T) {
-	dbPath := t.TempDir() + "/layoutdb"
+	dbPath := filepath.Join(t.TempDir(), "layoutdb")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// WAL directory
-	walDir := dbPath + "/" + config.WALDirName
+	walDir := filepath.Join(dbPath, config.WALDirName)
 	info, statErr := os.Stat(walDir)
 	tst.RequireNoError(t, statErr)
 	tst.AssertTrue(t, info.IsDir(), "expected WAL directory to exist")
 
 	// Lock file
-	lockPath := dbPath + "/" + config.LockFileName
+	lockPath := filepath.Join(dbPath, config.LockFileName)
 	info, statErr = os.Stat(lockPath)
 	tst.RequireNoError(t, statErr)
 	tst.AssertTrue(t, info.Mode().IsRegular(), "expected lock file to be a regular file")
 
 	// Manifest
-	manifestPath := dbPath + "/" + config.ManifestFileName
+	manifestPath := filepath.Join(dbPath, config.ManifestFileName)
 	info, statErr = os.Stat(manifestPath)
 	tst.RequireNoError(t, statErr)
 	tst.AssertTrue(t, info.Mode().IsRegular(), "expected manifest to be a regular file")
@@ -72,7 +73,7 @@ func TestInit_FreshDir_CreatesLayout(t *testing.T) {
 
 // AC1: Init with nil logger uses no-op logger without panicking.
 func TestInit_NilLogger(t *testing.T) {
-	dbPath := t.TempDir() + "/nilloggerdb"
+	dbPath := filepath.Join(t.TempDir(), "nilloggerdb")
 
 	err := waldb.Init(dbPath, nil)
 	tst.RequireNoError(t, err)
@@ -80,7 +81,7 @@ func TestInit_NilLogger(t *testing.T) {
 
 // AC1: A DB initialized via Init can perform Put and Get after Open.
 func TestInit_ThenPutAndGet(t *testing.T) {
-	dbPath := t.TempDir() + "/putgetdb"
+	dbPath := filepath.Join(t.TempDir(), "putgetdb")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -99,7 +100,7 @@ func TestInit_ThenPutAndGet(t *testing.T) {
 
 // AC2: Re-initializing an already-initialized DB returns ErrAlreadyExists.
 func TestInit_AlreadyInitialized_ReturnsError(t *testing.T) {
-	dbPath := t.TempDir() + "/reinitdb"
+	dbPath := filepath.Join(t.TempDir(), "reinitdb")
 
 	// First init must succeed.
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
@@ -114,7 +115,7 @@ func TestInit_AlreadyInitialized_ReturnsError(t *testing.T) {
 
 // AC2: Re-initializing does not overwrite or corrupt the existing DB.
 func TestInit_AlreadyInitialized_DoesNotCorrupt(t *testing.T) {
-	dbPath := t.TempDir() + "/nocorruptdb"
+	dbPath := filepath.Join(t.TempDir(), "nocorruptdb")
 
 	err := waldb.Init(dbPath, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
@@ -144,11 +145,11 @@ func TestInit_AlreadyInitialized_DoesNotCorrupt(t *testing.T) {
 // subdirectory) causes Init to fail before creating any additional layout files.
 // The pre-existing state is left unchanged (no WAL dir or LOCK created).
 func TestInit_ConflictingManifestDir_EarlyRejection(t *testing.T) {
-	dbPath := t.TempDir() + "/conflictdb"
+	dbPath := filepath.Join(t.TempDir(), "conflictdb")
 
 	// Pre-create the DB directory with a MANIFEST.json subdirectory to simulate
 	// a conflicting path before Init runs.
-	manifestConflict := dbPath + "/" + config.ManifestFileName
+	manifestConflict := filepath.Join(dbPath, config.ManifestFileName)
 	err := os.MkdirAll(manifestConflict, 0o750)
 	tst.RequireNoError(t, err)
 
@@ -158,7 +159,7 @@ func TestInit_ConflictingManifestDir_EarlyRejection(t *testing.T) {
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrAlreadyExists), "expected ErrAlreadyExists")
 
 	// The WAL directory must NOT have been created (Init bailed out early).
-	walDir := dbPath + "/" + config.WALDirName
+	walDir := filepath.Join(dbPath, config.WALDirName)
 	_, statErr := os.Stat(walDir)
 	tst.AssertTrue(t, os.IsNotExist(statErr),
 		"expected WAL directory to be absent after early Init failure")
