@@ -56,7 +56,9 @@ func (c *GetCmd) Run(globals Globals, lg logger.Logger) (err error) {
 	if err != nil {
 		return
 	}
-	printDBEntry(c.Key, string(val), c.Json, c.Pretty)
+	if err = printDBEntry(c.Key, string(val), c.Json, c.Pretty); err != nil {
+		return
+	}
 	return
 }
 
@@ -77,7 +79,9 @@ func (c *PutCmd) Run(globals Globals, lg logger.Logger) (err error) {
 	if err = d.Put([]byte(c.Key), []byte(c.Value)); err != nil {
 		return
 	}
-	printDBEntry(c.Key, c.Value, c.Json, c.Pretty)
+	if err = printDBEntry(c.Key, c.Value, c.Json, c.Pretty); err != nil {
+		return
+	}
 	return
 }
 
@@ -97,7 +101,9 @@ func (c *DelCmd) Run(globals Globals, lg logger.Logger) (err error) {
 	if err = d.Delete([]byte(c.Key)); err != nil {
 		return
 	}
-	printDBEntry(c.Key, "<deleted>", c.Json, c.Pretty)
+	if err = printDBEntry(c.Key, "<deleted>", c.Json, c.Pretty); err != nil {
+		return
+	}
 	return
 }
 
@@ -179,12 +185,11 @@ func (c *ManifestCmd) Run(globals Globals, lg logger.Logger) error {
 	return nil
 }
 
-func printDBEntry(key, value string, doJson, pretty bool) {
+func printDBEntry(key, value string, doJson, pretty bool) error {
 	if doJson {
 		entry := map[string]string{"key": key, "value": value}
 		if err := printJson(entry, pretty); err != nil {
-			cliutil.PrintError(fmt.Sprintf("Error printing JSON: %v", err))
-			cliutil.PrintColored(fmt.Sprintf("Key: %s\nValue: %s", key, value), cliutil.ColorYellow)
+			return err
 		}
 	} else {
 		if pretty {
@@ -196,6 +201,7 @@ func printDBEntry(key, value string, doJson, pretty bool) {
 			cliutil.PrintColored(fmt.Sprintf("Key: %s\nValue: %s", key, value), cliutil.ColorGreen)
 		}
 	}
+	return nil
 }
 
 func printJson(data any, pretty bool) error {
