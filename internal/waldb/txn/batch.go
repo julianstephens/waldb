@@ -41,9 +41,15 @@ func (b *Batch) Delete(key []byte) {
 
 // Ops returns the list of operations accumulated in the batch.
 func (b *Batch) Ops() []kv.Op {
-	opsCopy := make([]kv.Op, len(b.ops))
-	copy(opsCopy, b.ops)
-	return opsCopy
+	res := make([]kv.Op, len(b.ops))
+	for i, op := range b.ops {
+		res[i] = kv.Op{
+			Kind:  op.Kind,
+			Key:   bytes.Clone(op.Key),
+			Value: bytes.Clone(op.Value),
+		}
+	}
+	return res
 }
 
 // Validate checks the batch for common errors.
