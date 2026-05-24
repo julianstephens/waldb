@@ -1,6 +1,7 @@
 package memtable
 
 import (
+	"bytes"
 	"errors"
 	"sync"
 
@@ -44,7 +45,7 @@ func (t *Table) Get(key []byte) (value []byte, ok bool) {
 	if !ok || e.Tombstone {
 		return nil, false
 	}
-	return e.Value, true
+	return bytes.Clone(e.Value), true
 }
 
 // Put sets key to value.

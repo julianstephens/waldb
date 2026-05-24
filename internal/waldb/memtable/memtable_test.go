@@ -188,6 +188,32 @@ func TestGetDeleted(t *testing.T) {
 	}
 }
 
+// TestGetDefensiveCopy ensures that mutating the value returned by Get does not affect the stored entry.
+func TestGetDefensiveCopy(t *testing.T) {
+	tbl := memtable.New()
+	key := []byte("key")
+	original := []byte("value")
+	if err := tbl.Put(key, original); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := tbl.Get(key)
+	if !ok {
+		t.Fatal("expected Get to return true")
+	}
+
+	// Mutate the returned slice.
+	got[0] = 'X'
+
+	got2, ok := tbl.Get(key)
+	if !ok {
+		t.Fatal("expected second Get to return true")
+	}
+	if !bytes.Equal(got2, original) {
+		t.Errorf("stored value was mutated: got %q, want %q", got2, original)
+	}
+}
+
 // TestDeleteOperations tests Delete with various scenarios
 func TestDeleteOperations(t *testing.T) {
 	tests := []struct {
