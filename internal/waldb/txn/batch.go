@@ -1,6 +1,8 @@
 package txn
 
 import (
+	"bytes"
+
 	"github.com/julianstephens/waldb/internal/waldb/kv"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
 )
@@ -23,8 +25,8 @@ func NewBatch() *Batch {
 func (b *Batch) Put(key, value []byte) {
 	b.ops = append(b.ops, kv.Op{
 		Kind:  kv.OpPut,
-		Key:   key,
-		Value: value,
+		Key:   bytes.Clone(key),
+		Value: bytes.Clone(value),
 	})
 }
 
@@ -33,7 +35,7 @@ func (b *Batch) Put(key, value []byte) {
 func (b *Batch) Delete(key []byte) {
 	b.ops = append(b.ops, kv.Op{
 		Kind: kv.OpDelete,
-		Key:  key,
+		Key:  bytes.Clone(key),
 	})
 }
 
