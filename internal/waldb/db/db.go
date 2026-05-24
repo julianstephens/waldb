@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"sync"
 
@@ -33,87 +32,6 @@ type DB struct {
 	writeMu     *sync.Mutex   // protects commit operations to ensure serializability
 	logger      logger.Logger
 	closed      bool
-}
-
-// manifestInitFn is the function used to initialize the manifest.
-// It is a variable so it can be replaced in tests.
-var manifestInitFn = manifest.Init
-
-// Init initializes a new WAL database at the given directory path.
-// It creates the necessary directory structure and manifest file.
-// If the directory already exists and is not empty, it returns an error
-func Init(dir string, lg logger.Logger) error {
-	if lg == nil {
-		lg = &logger.NoOpLogger{}
-	}
-
-	exists, info, err := helpers.ExistsWithInfo(dir)
-	if err != nil {
-		lg.Error("failed to check if directory exists", err, "dir", dir)
-		return wrapDBErr("init", ErrInitFailed, dir, err)
-	}
-	if exists {
-		if !info.IsDir() {
-			lg.Error("provided path is not a directory", nil, "dir", dir)
-			return wrapDBErr("init", ErrInvalidDir, dir, fmt.Errorf("path exists but is not a directory: %s", dir))
-		}
-
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			lg.Error("failed to read existing directory", err, "dir", dir)
-			return wrapDBErr("init", ErrInitFailed, dir, err)
-		}
-		if len(entries) > 0 {
-			lg.Error("cannot initialize database: directory is not empty", nil, "dir", dir, "entry_count", len(entries))
-			return wrapDBErr("init", ErrAlreadyExists, dir, errors.New("provided directory is not empty"))
-		}
-	}
-
-	lg.Info("initializing new database", "dir", dir)
-
-	lg.Debug("ensuring database directory structure", "dir", dir)
-	if err := helpers.Ensure(dir, true); err != nil {
-		lg.Error("failed to ensure database directory", err, "dir", dir)
-		return wrapDBErr("init", ErrInitFailed, dir, err)
-	}
-
-	created := []string{}
-	lg.Debug("creating WAL directory", "dir", dir)
-	if err := os.Mkdir(filepath.Join(dir, waldb.WALDirName), 0750); err != nil {
-		lg.Error("failed to create WAL directory", err, "dir", dir)
-		return wrapDBErr("init", ErrInitFailed, dir, err)
-	}
-	created = append(created, waldb.WALDirName)
-
-	lg.Debug("creating lock file", "dir", dir)
-	if file, err := os.Create(filepath.Join(dir, waldb.LockFileName)); err != nil { // nolint:gosec
-		lg.Error("failed to create lock file", err, "dir", dir)
-		return wrapDBErr("init", ErrInitFailed, dir, err)
-	} else {
-		if err := file.Close(); err != nil {
-			lg.Error("failed to close lock file", err, "dir", dir)
-			return wrapDBErr("init", ErrInitFailed, dir, err)
-		}
-	}
-	created = append(created, waldb.LockFileName)
-
-	lg.Debug("initializing manifest", "dir", dir)
-	if _, err := manifestInitFn(dir); err != nil {
-		lg.Error("failed to initialize manifest", err, "dir", dir)
-		lg.Debug("cleaning up created files/directories", "dir", dir, "created_count", len(created))
-		for _, name := range created {
-			path := filepath.Join(dir, name)
-			if err := os.RemoveAll(path); err != nil {
-				lg.Error("failed to clean up path during init error handling", err, "path", path)
-			} else {
-				lg.Debug("cleaned up path during init error handling", "path", path)
-			}
-		}
-		return wrapDBErr("init", ErrInitFailed, dir, err)
-	}
-
-	lg.Info("database initialized successfully", "dir", dir)
-	return nil
 }
 
 // Open opens an existing WAL database at the given directory path.
@@ -154,7 +72,7 @@ func Open(dir string, lg logger.Logger) (*DB, error) {
 		writeMu:     &sync.Mutex{},
 	}
 
-	if err = db.acquireLock(); err != nil {
+	if err = db.acquireFileLock(); err != nil {
 		return nil, err
 	}
 
@@ -190,7 +108,7 @@ func (db *DB) Close() error {
 		}
 	}
 
-	if err := db.releaseLock(); err != nil && closeErr == nil {
+	if err := db.releaseFileLock(); err != nil && closeErr == nil {
 		closeErr = err
 	}
 
@@ -407,7 +325,7 @@ func (db *DB) initialize() error {
 	allocator, err := txn.NewCounterAllocator(res.NextTxnId)
 	if err != nil {
 		db.logger.Error("failed to create transaction allocator", err, "dir", db.dir, "next_txn_id", res.NextTxnId)
-		return wrapDBErr("init", ErrInitFailed, db.dir, err)
+		return wrapDBErr("init", ErrOpenFailed, db.dir, err)
 	}
 
 	db.txnw = txn.NewWriter(allocator, db.wal, txn.WriterOpts{FsyncOnCommit: db.manifest.FsyncOnCommit}, db.logger)
@@ -425,7 +343,7 @@ func validateDBDir(dir string) error {
 		return wrapDBErr("open", ErrInvalidDir, dir, err)
 	}
 
-	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
+	manifestPath := filepath.Join(dir, manifest.ManifestFileName)
 	info, err := validatePath(manifestPath, false)
 	if err != nil {
 		return wrapDBErr("open", ErrManifestMissing, dir, err)
@@ -476,8 +394,8 @@ func validatePath(path string, isDir bool) (info fs.FileInfo, err error) {
 	return
 }
 
-// acquireLock attempts to acquire a file lock on the database directory to prevent concurrent access.
-func (db *DB) acquireLock() error {
+// acquireFileLock attempts to acquire a file lock on the database directory to prevent concurrent access.
+func (db *DB) acquireFileLock() error {
 	lockPath := filepath.Join(db.dir, waldb.LockFileName)
 	fileLock := flock.New(lockPath)
 
@@ -497,8 +415,8 @@ func (db *DB) acquireLock() error {
 	return nil
 }
 
-// releaseLock releases the file lock on the database directory.
-func (db *DB) releaseLock() error {
+// releaseFileLock releases the file lock on the database directory.
+func (db *DB) releaseFileLock() error {
 	if db.fileLock == nil {
 		return nil
 	}
@@ -525,7 +443,7 @@ func (db *DB) cleanupOnError(err error) error {
 	}
 
 	if db.fileLock != nil {
-		if err := db.releaseLock(); err != nil {
+		if err := db.releaseFileLock(); err != nil {
 			lg.Error("failed to release lock during cleanup", err, "dir", db.dir)
 		}
 	}

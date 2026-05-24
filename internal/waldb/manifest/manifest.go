@@ -8,8 +8,14 @@ import (
 
 	"github.com/julianstephens/go-utils/helpers"
 	"github.com/julianstephens/go-utils/jsonutil"
+
 	"github.com/julianstephens/waldb/internal/waldb"
 	"github.com/julianstephens/waldb/internal/waldb/wal/record"
+)
+
+const (
+	ManifestFileName = "MANIFEST.json"
+	ManifestVersion  = 1
 )
 
 // Manifest represents the database manifest file structure
@@ -27,7 +33,7 @@ type Manifest struct {
 // DefaultManifest returns a Manifest with default settings
 func DefaultManifest() *Manifest {
 	return &Manifest{
-		FormatVersion:      waldb.ManifestVersion,
+		FormatVersion:      ManifestVersion,
 		FsyncOnCommit:      true,
 		MaxKeyBytes:        record.MaxKeySize,
 		MaxValueBytes:      record.MaxValueSize,
@@ -40,7 +46,7 @@ func DefaultManifest() *Manifest {
 
 // Init creates a new manifest file with default settings
 func Init(dir string) (m *Manifest, err error) {
-	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
+	manifestPath := filepath.Join(dir, ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); exists {
 		err = &ManifestError{
@@ -65,7 +71,7 @@ func Init(dir string) (m *Manifest, err error) {
 
 // Open reads the manifest from disk
 func Open(dir string) (m *Manifest, err error) {
-	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
+	manifestPath := filepath.Join(dir, ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); !exists {
 		err = &ManifestError{Kind: ManifestErrorKindNotFound, Err: fs.ErrNotExist}
@@ -78,7 +84,7 @@ func Open(dir string) (m *Manifest, err error) {
 		return
 	}
 
-	if m.FormatVersion > waldb.ManifestVersion {
+	if m.FormatVersion > ManifestVersion {
 		err = &ManifestError{
 			Kind: ManifestErrorKindUnsupportedVersion,
 			Err:  fmt.Errorf("manifest version %d is not supported", m.FormatVersion),
@@ -95,7 +101,7 @@ func Open(dir string) (m *Manifest, err error) {
 
 // Save writes the manifest to disk
 func (m *Manifest) Save(dir string) error {
-	manifestPath := filepath.Join(dir, waldb.ManifestFileName)
+	manifestPath := filepath.Join(dir, ManifestFileName)
 
 	if exists := helpers.Exists(manifestPath); !exists {
 		return &ManifestError{Kind: ManifestErrorKindNotFound, Err: fs.ErrNotExist}
@@ -153,4 +159,11 @@ func mustBePositive(name string) error {
 		Kind: ManifestErrorKindCorrupted,
 		Err:  fmt.Errorf("%s must be positive", name),
 	}
+}
+
+func init() {
+	waldb.RegisterManifestInit(func(dir string) error {
+		_, err := Init(dir)
+		return err
+	})
 }

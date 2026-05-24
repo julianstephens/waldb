@@ -16,13 +16,11 @@ const (
 
 // Database versioning
 const (
-	Version         = "0.1.0"
-	ManifestVersion = 1
+	Version = "0.1.0"
 )
 
 // File and directory names
 const (
-	LockFileName     = "LOCK"
-	ManifestFileName = "MANIFEST.json"
-	WALDirName       = "wal"
+	LockFileName = "LOCK"
+	WALDirName   = "wal"
 )
