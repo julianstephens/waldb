@@ -15,14 +15,18 @@ import (
 
 // Manifest represents the database manifest file structure
 type Manifest struct {
-	FormatVersion      int  `json:"format_version"`
-	FsyncOnCommit      bool `json:"fsync_on_commit"`
-	MaxKeyBytes        int  `json:"max_key_bytes"`
-	MaxValueBytes      int  `json:"max_value_bytes"`
-	WalSegmentMaxBytes int  `json:"wal_segment_max_bytes"`
-	WalNextSegmentID   *int `json:"wal_next_segment_id,omitempty"`
-	WalLogMaxBytes     *int `json:"wal_log_max_bytes,omitempty"`
-	WalLogMaxBackups   *int `json:"wal_log_max_backups,omitempty"`
+	FormatVersion      int     `json:"format_version"`
+	FsyncOnCommit      bool    `json:"fsync_on_commit"`
+	MaxKeyBytes        int     `json:"max_key_bytes"`
+	MaxValueBytes      int     `json:"max_value_bytes"`
+	WalSegmentMaxBytes int     `json:"wal_segment_max_bytes"`
+	WalNextSegmentID   *int    `json:"wal_next_segment_id,omitempty"`
+	WalLogMaxBytes     *int    `json:"wal_log_max_bytes,omitempty"`
+	WalLogMaxBackups   *int    `json:"wal_log_max_backups,omitempty"`
+	LogDir             *string `json:"log_dir,omitempty"`
+	LogFileName        *string `json:"log_file_name,omitempty"`
+	LogMaxSize         *int    `json:"log_max_size,omitempty"`
+	LogMaxBackups      *int    `json:"log_max_backups,omitempty"`
 }
 
 // DefaultManifest returns a Manifest with default settings
@@ -153,5 +157,54 @@ func mustBePositive(name string) error {
 	return &ManifestError{
 		Kind: ManifestErrorKindCorrupted,
 		Err:  fmt.Errorf("%s must be positive", name),
+	}
+}
+
+// LogDirOrDefault returns the configured log directory, or the default.
+func (m *Manifest) LogDirOrDefault() string {
+	if m.LogDir != nil {
+		return *m.LogDir
+	}
+	return config.DefaultLogDir
+}
+
+// LogFileNameOrDefault returns the configured log file name, or the default.
+func (m *Manifest) LogFileNameOrDefault() string {
+	if m.LogFileName != nil {
+		return *m.LogFileName
+	}
+	return config.DefaultLogFileName
+}
+
+// LogMaxSizeOrDefault returns the configured log max size (MB), or the default.
+func (m *Manifest) LogMaxSizeOrDefault() int {
+	if m.LogMaxSize != nil {
+		return *m.LogMaxSize
+	}
+	return config.DefaultLogMaxSize
+}
+
+// LogMaxBackupsOrDefault returns the configured log max backups, or the default.
+func (m *Manifest) LogMaxBackupsOrDefault() int {
+	if m.LogMaxBackups != nil {
+		return *m.LogMaxBackups
+	}
+	return config.DefaultLogMaxBackups
+}
+
+func (m *Manifest) ToMap() map[string]any {
+	return map[string]any{
+		"format_version":        m.FormatVersion,
+		"fsync_on_commit":       m.FsyncOnCommit,
+		"max_key_bytes":         m.MaxKeyBytes,
+		"max_value_bytes":       m.MaxValueBytes,
+		"wal_segment_max_bytes": m.WalSegmentMaxBytes,
+		"wal_next_segment_id":   m.WalNextSegmentID,
+		"wal_log_max_bytes":     m.WalLogMaxBytes,
+		"wal_log_max_backups":   m.WalLogMaxBackups,
+		"log_dir":               m.LogDirOrDefault(),
+		"log_file_name":         m.LogFileNameOrDefault(),
+		"log_max_size":          m.LogMaxSizeOrDefault(),
+		"log_max_backups":       m.LogMaxBackupsOrDefault(),
 	}
 }

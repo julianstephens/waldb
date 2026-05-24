@@ -24,7 +24,7 @@ import (
 func TestInit_FullLifecycle_DataPersists(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "e2e-persist")
 
-	err := waldb.Init(dbPath, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// First session: write data.
@@ -56,7 +56,7 @@ func TestInit_FullLifecycle_DataPersists(t *testing.T) {
 func TestInit_BatchCommit_AllKeysPersist(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "e2e-batch")
 
-	err := waldb.Init(dbPath, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	keys := [][]byte{[]byte("alpha"), []byte("beta"), []byte("gamma")}
@@ -98,7 +98,7 @@ func TestInit_BatchCommit_AllKeysPersist(t *testing.T) {
 func TestInit_DoubleInit_ExistingDBUnaffected(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "e2e-double")
 
-	err := waldb.Init(dbPath, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Write data via first session.
@@ -112,7 +112,7 @@ func TestInit_DoubleInit_ExistingDBUnaffected(t *testing.T) {
 	}
 
 	// Second Init call must be rejected.
-	err = waldb.Init(dbPath, logger.NoOpLogger{})
+	err = waldb.Init(dbPath, false, logger.NoOpLogger{})
 	tst.AssertNotNil(t, err, "expected error when re-initializing a non-empty directory")
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrAlreadyExists), "expected ErrAlreadyExists")
 
@@ -132,7 +132,7 @@ func TestInit_DoubleInit_ExistingDBUnaffected(t *testing.T) {
 func TestInit_MultipleSessions_DataAccumulates(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "e2e-sessions")
 
-	err := waldb.Init(dbPath, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	const sessionCount = 3
@@ -163,6 +163,39 @@ func TestInit_MultipleSessions_DataAccumulates(t *testing.T) {
 	}
 }
 
+// E2E: Init with force=true on a non-empty dir wipes existing data and re-initializes successfully.
+func TestInit_Force_WipesExistingDataAndReinits(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "e2e-force")
+
+	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
+	tst.RequireNoError(t, err)
+
+	// Write data into the first DB.
+	{
+		db, err := waldb_db.Open(dbPath, logger.NoOpLogger{})
+		tst.RequireNoError(t, err)
+		err = db.Put([]byte("old_key"), []byte("old_value"))
+		tst.RequireNoError(t, err)
+		err = db.Close()
+		tst.RequireNoError(t, err)
+	}
+
+	// Force re-init must succeed even though the directory is non-empty.
+	err = waldb.Init(dbPath, true, logger.NoOpLogger{})
+	tst.RequireNoError(t, err)
+
+	// The new DB must be empty — old data must not be present.
+	{
+		db, err := waldb_db.Open(dbPath, logger.NoOpLogger{})
+		tst.RequireNoError(t, err)
+		defer func() { _ = db.Close() }()
+
+		_, err = db.Get([]byte("old_key"))
+		tst.AssertNotNil(t, err, "expected old key to be absent after force re-init")
+		tst.AssertTrue(t, errors.Is(err, waldb_db.ErrKeyNotFound), "expected ErrKeyNotFound")
+	}
+}
+
 // E2E: Init on path that is a regular file returns ErrInvalidDir; no layout is created.
 func TestInit_FilePathRejected_NoSideEffects(t *testing.T) {
 	// Create a regular file where the DB directory would be.
@@ -171,7 +204,7 @@ func TestInit_FilePathRejected_NoSideEffects(t *testing.T) {
 	filePath := f.Name()
 	tst.RequireNoError(t, f.Close())
 
-	err = waldb.Init(filePath, logger.NoOpLogger{})
+	err = waldb.Init(filePath, false, logger.NoOpLogger{})
 	tst.AssertNotNil(t, err, "expected error when db path is a file")
 	tst.AssertTrue(t, errors.Is(err, waldb.ErrInvalidDBDir), "expected ErrInvalidDir")
 
@@ -185,7 +218,7 @@ func TestInit_FilePathRejected_NoSideEffects(t *testing.T) {
 func TestInit_DeletePersistsAcrossRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "e2e-delete")
 
-	err := waldb.Init(dbPath, logger.NoOpLogger{})
+	err := waldb.Init(dbPath, false, logger.NoOpLogger{})
 	tst.RequireNoError(t, err)
 
 	// Write then delete.
