@@ -109,3 +109,55 @@ graph TD
     SEG_APP -.appends.-> SEG_FILES
     SEG_READ -.reads.-> SEG_FILES
 ```
+
+## Key Workflows
+
+### Initialization
+
+When you run `waldb init`, the CLI will create the necessary directory structure for a WalDB instance, including the `wal/` directory for storing WAL segments and the `MANIFEST.json` file for configuration and metadata. It will also create a `LOCK` file to prevent multiple instances from accessing the same database concurrently.
+
+### Put / Get / Delete
+
+#### Put
+
+CLI command: `waldb put <key> <value>`
+
+Steps:
+
+1. Transaction Creation: The CLI creates a new transaction batch and adds a Put operation with the specified key and value.
+2. Transaction Commit: The transaction batch is committed, which involves:
+   - Allocating a new TxnID.
+   - Encoding the Put operation into a WAL record.
+   - Appending the record to the active WAL segment using the SegmentAppender.
+   - Flushing the segment to disk to ensure durability.
+3. Memtable Update: The in-memory memtable is updated with the new key-value pair.
+
+#### Get
+
+CLI command: `waldb get <key>`
+
+Steps:
+
+1. Memtable Lookup: The CLI queries the memtable for the specified key.
+2. Result Handling: If the key is found and not marked as deleted, the value is returned. If the key is marked as deleted (tombstone) or not found, an appropriate message is returned.
+
+#### Delete
+
+CLI command: `waldb delete <key>`
+
+Steps:
+
+1. Transaction Creation: A new transaction batch is created, and a Delete operation is added for the specified key.
+2. Transaction Commit: Similar to the Put operation, the transaction batch is committed, which involves:
+   - Allocating a new TxnID.
+   - Encoding the Delete operation into a WAL record.
+   - Appending the record to the active WAL segment and flushing it to disk.
+3. Memtable Update: The memtable is updated to mark the key as deleted using a tombstone entry.
+
+### Recovery
+
+When the database is opened, the recovery process is triggered to ensure that the state of the database is consistent with the WAL. The recovery process involves:
+
+1. WAL Replay: The recovery module reads all WAL segments in order, starting from the oldest to the newest. It decodes each record and applies the operations to an in-memory memtable.
+2. In-flight Transaction Handling: The recovery process tracks in-flight transactions (those that have begun but not yet committed) and applies or discards their operations based on whether a corresponding commit record is found.
+3. Tail Status Detection: The recovery process detects the status of the WAL tail, which can be valid, corrupt, or truncated. This information is crucial for determining the integrity of the database and whether any data loss may have occurred.
