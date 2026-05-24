@@ -135,6 +135,13 @@ func (db *DB) Commit(b *txn.Batch) (uint64, error) {
 		return 0, wrapDBErr("commit", ErrClosed, db.dir, nil)
 	}
 
+	if b == nil {
+		return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.dir, errors.New("batch is nil"))
+	}
+	if len(b.Ops()) == 0 {
+		return 0, wrapDBErr("commit", ErrCommitInvalidBatch, db.dir, errors.New("batch has no operations"))
+	}
+
 	return db.commitLocked(b)
 }
 
